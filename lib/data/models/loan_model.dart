@@ -52,10 +52,16 @@ class LoanModel extends HiveObject {
     required this.dueDate,
     this.status = 'activo', // El estado por defecto es 'activo'
   }) {
-    // Asigna un ID existente o genera uno nuevo si no se proporciona.
-    this.id = id ?? const Uuid().v4();
+    // Genera un ID numérico de 5 dígitos si no se proporciona uno.
+    this.id = id ?? _generateFiveDigitId();
+
   }
 
+  String _generateFiveDigitId(){
+    final random = Random();
+    return (10000 + random.nextInt(90000)).toString();
+  }
+  
   // Getter que calcula el pago mensual del préstamo utilizando la fórmula de amortización.
   // M = P [ i(1 + i)^n ] / [ (1 + i)^n – 1]
   // Donde:
