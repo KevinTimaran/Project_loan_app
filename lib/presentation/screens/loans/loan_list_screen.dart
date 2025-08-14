@@ -6,17 +6,15 @@ import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:loan_app/presentation/screens/loans/add_loan_screen.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
-import 'package:hive/hive.dart'; // <--- ¡Importa Hive aquí!
+import 'package:hive/hive.dart';
 
 /// Pantalla que muestra una lista de todos los préstamos.
 class LoanListScreen extends StatelessWidget {
   const LoanListScreen({super.key});
 
-  // Función para borrar todos los préstamos de Hive (para desarrollo/pruebas)
   Future<void> _clearAllLoans(BuildContext context) async {
     final loanBox = await Hive.openBox<LoanModel>('loans');
-    await loanBox.clear(); // Borra todos los elementos de la caja 'loans'
-    // Recarga los préstamos en el proveedor para que la UI se actualice
+    await loanBox.clear();
     Provider.of<LoanProvider>(context, listen: false).loadLoans();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('¡Todos los préstamos han sido borrados!')),
@@ -44,7 +42,6 @@ class LoanListScreen extends StatelessWidget {
         centerTitle: true,
         elevation: 0,
         actions: [
-          // Botón para añadir un nuevo préstamo
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
@@ -53,12 +50,10 @@ class LoanListScreen extends StatelessWidget {
               );
             },
           ),
-          // Botón para borrar todos los préstamos (¡TEMPORAL PARA PRUEBAS!)
           IconButton(
-            icon: const Icon(Icons.delete_sweep, color: Colors.white), // Icono de borrar todo
+            icon: const Icon(Icons.delete_sweep, color: Colors.white),
             tooltip: 'Borrar Todos los Préstamos (¡Solo pruebas!)',
             onPressed: () {
-              // Muestra un diálogo de confirmación antes de borrar TODO
               showDialog(
                 context: context,
                 builder: (ctx) => AlertDialog(
@@ -71,8 +66,8 @@ class LoanListScreen extends StatelessWidget {
                     ),
                     ElevatedButton(
                       onPressed: () {
-                        Navigator.of(ctx).pop(); // Cierra el diálogo
-                        _clearAllLoans(context); // Llama a la función para borrar
+                        Navigator.of(ctx).pop();
+                        _clearAllLoans(context);
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: alertRed,
@@ -151,6 +146,7 @@ class LoanListScreen extends StatelessWidget {
                             'Monto: ${currencyFormatter.format(loan.amount)}',
                             style: TextStyle(fontSize: 14, color: textColor),
                           ),
+                          // Muestra la tasa de interés como porcentaje (ej. 5% en lugar de 0.05)
                           Text(
                             'Tasa: ${(loan.interestRate * 100).toStringAsFixed(2)}%',
                             style: TextStyle(fontSize: 14, color: textColor),

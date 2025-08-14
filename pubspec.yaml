@@ -17,8 +17,9 @@ dependencies:
   uuid: ^4.4.0
   intl: ^0.20.0
   provider: ^6.1.2
-  google_fonts: ^6.1.0 # <--- ¡Aquí está la línea añadida!
+  google_fonts: ^6.1.0 
   shared_preferences: ^2.5.3
+  currency_text_input_formatter: ^2.3.0
 
 dev_dependencies:
   flutter_test:
