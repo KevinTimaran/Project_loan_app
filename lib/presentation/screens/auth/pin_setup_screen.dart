@@ -21,7 +21,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         const SnackBar(content: Text('PIN configurado con éxito')),
       );
       // Navegamos a la pantalla de la lista de préstamos.
-      Navigator.of(context).pushReplacementNamed('/loanList');
+      Navigator.of(context).pushReplacementNamed('/home');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El PIN debe tener 4 dígitos')),

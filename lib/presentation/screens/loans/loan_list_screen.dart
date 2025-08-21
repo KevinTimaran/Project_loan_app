@@ -7,18 +7,49 @@ import 'package:loan_app/presentation/screens/loans/add_loan_screen.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
 import 'package:hive/hive.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-/// Pantalla que muestra una lista de todos los préstamos.
 class LoanListScreen extends StatelessWidget {
   const LoanListScreen({super.key});
 
   Future<void> _clearAllLoans(BuildContext context) async {
-    final loanBox = await Hive.openBox<LoanModel>('loans');
-    await loanBox.clear();
+    await Hive.deleteBoxFromDisk('loans');
     Provider.of<LoanProvider>(context, listen: false).loadLoans();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('¡Todos los préstamos han sido borrados!')),
     );
+  }
+
+  Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
+    final Uri launchUri = Uri(
+      scheme: 'tel',
+      path: phoneNumber,
+    );
+    if (await canLaunchUrl(launchUri)) {
+
+      await launchUrl(launchUri);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo realizar la llamada a $phoneNumber')),
+      );
+    }
+  }
+
+  Future<void> _launchWhatsApp(BuildContext context, String whatsappNumber) async {
+    final Uri whatsappUri = Uri.parse('whatsapp://send?phone=$whatsappNumber');
+    if (await canLaunchUrl(whatsappUri)) {
+      await launchUrl(whatsappUri);
+    } else {
+      final Uri webWhatsappUri = Uri.parse('https://wa.me/$whatsappNumber');
+      if (await canLaunchUrl(webWhatsappUri)) {
+        await launchUrl(webWhatsappUri, mode: LaunchMode.externalApplication);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir WhatsApp para $whatsappNumber. Asegúrate de tener la app o de que el número sea correcto (ej. +57XXXXXXXXXX).')),
+        );
+      }
+    }
   }
 
   @override
@@ -42,14 +73,6 @@ class LoanListScreen extends StatelessWidget {
         centerTitle: true,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.add),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (context) => const AddLoanScreen()),
-              );
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep, color: Colors.white),
             tooltip: 'Borrar Todos los Préstamos (¡Solo pruebas!)',
@@ -124,6 +147,23 @@ class LoanListScreen extends StatelessWidget {
 
               final String clientName = loan.clientId;
 
+              String paymentLabel = 'Pago ';
+              switch (loan.paymentFrequency) {
+                case 'Diario':
+                  paymentLabel += 'Diario:';
+                  break;
+                case 'Semanal':
+                  paymentLabel += 'Semanal:';
+                  break;
+                case 'Quincenal':
+                  paymentLabel += 'Quincenal:';
+                  break;
+                case 'Mensual':
+                default:
+                  paymentLabel += 'Mensual:';
+                  break;
+              }
+
               return Card(
                 margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 color: rowBackgroundColor,
@@ -146,13 +186,16 @@ class LoanListScreen extends StatelessWidget {
                             'Monto: ${currencyFormatter.format(loan.amount)}',
                             style: TextStyle(fontSize: 14, color: textColor),
                           ),
-                          // Muestra la tasa de interés como porcentaje (ej. 5% en lugar de 0.05)
                           Text(
                             'Tasa: ${(loan.interestRate * 100).toStringAsFixed(2)}%',
                             style: TextStyle(fontSize: 14, color: textColor),
                           ),
                           Text(
-                            'Plazo: ${loan.termMonths} meses',
+                            'Plazo: ${loan.termValue} ${loan.termUnit}',
+                            style: TextStyle(fontSize: 14, color: textColor),
+                          ),
+                          Text(
+                            'Frecuencia: ${loan.paymentFrequency}',
                             style: TextStyle(fontSize: 14, color: textColor),
                           ),
                           Text(
@@ -168,114 +211,60 @@ class LoanListScreen extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            'Pago Mensual: ${currencyFormatter.format(loan.monthlyPayment)}',
+                            '$paymentLabel ${currencyFormatter.format(loan.calculatedPaymentAmount)}',
                             style: TextStyle(fontSize: 14, color: textColor),
                           ),
                           Text(
                             'Vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}',
                             style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.7)),
                           ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (!loan.isFullyPaid)
-                            IconButton(
-                              icon: Icon(Icons.check_circle, color: mainGreen),
-                              tooltip: 'Marcar como Pagado',
-                              onPressed: () {
-                                loanProvider.markLoanAsPaid(loan.id);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Préstamo ${loan.id} marcado como pagado.',
-                                      style: TextStyle(color: Colors.white),
-                                    ),
-                                    backgroundColor: mainGreen,
-                                  ),
-                                );
-                              },
-                            ),
-                          IconButton(
-                            icon: Icon(Icons.delete, color: alertRed),
-                            tooltip: 'Eliminar Préstamo',
-                            onPressed: () {
-                              showDialog(
-                                context: context,
-                                builder: (ctx) => AlertDialog(
-                                  title: const Text(
-                                    'Confirmar Eliminación',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                                  ),
-                                  content: const Text(
-                                    '¿Estás seguro de que deseas eliminar este préstamo? Esta acción es irreversible.',
-                                    style: TextStyle(fontSize: 14),
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.of(ctx).pop(),
-                                      child: Text('Cancelar', style: TextStyle(color: primaryBlue)),
-                                    ),
-                                    ElevatedButton(
-                                      onPressed: () {
-                                        loanProvider.deleteLoan(loan.id);
-                                        Navigator.of(ctx).pop();
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text(
-                                              'Préstamo ${loan.id} eliminado.',
-                                              style: TextStyle(color: Colors.white),
-                                            ),
-                                            backgroundColor: alertRed,
-                                          ),
-                                        );
-                                      },
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Row(
+                              children: [
+                                if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty)
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
+                                      icon: const Icon(Icons.phone, size: 18),
+                                      label: const Text('Llamar'),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: alertRed,
-                                        foregroundColor: Colors.white,
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8.0)),
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
                                       ),
-                                      child: const Text('Eliminar'),
                                     ),
-                                  ],
-                                ),
-                              );
-                            },
+                                  ),
+                                if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty && loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                  const SizedBox(width: 8),
+                                if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
+                                      icon: const Icon(FontAwesomeIcons.whatsapp, size: 18),
+                                      label: const Text('WhatsApp'),
+                                      style: ElevatedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Tocado: Préstamo ${loan.id}',
-                              style: TextStyle(color: Colors.white),
-                            ),
-                            backgroundColor: primaryBlue,
-                          ),
-                        );
-                      },
                     ),
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: primaryBlue.withOpacity(0.8),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
+                    if (loan.id != null)
+                      Positioned(
+                        top: 8.0,
+                        right: 8.0,
                         child: Text(
                           'ID: ${loan.id}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: textColor.withOpacity(0.5),
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               );
@@ -289,12 +278,9 @@ class LoanListScreen extends StatelessWidget {
             MaterialPageRoute(builder: (context) => const AddLoanScreen()),
           );
         },
-        backgroundColor: mainGreen,
-        foregroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15.0)),
-        child: const Icon(Icons.add, size: 28),
-        tooltip: 'Añadir Nuevo Préstamo',
+        child: const Icon(Icons.add),
       ),
+      floatingActionButtonLocation: FloatingActionButtonLocation.miniStartFloat,
     );
   }
 }

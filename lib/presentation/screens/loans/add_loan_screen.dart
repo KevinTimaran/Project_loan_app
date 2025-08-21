@@ -4,11 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:intl/intl.dart';
-// Importa el formateador de moneda
 import 'package:currency_text_input_formatter/currency_text_input_formatter.dart';
-import 'package:flutter/services.dart'; // Necesario para TextInputFormatter
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-/// Pantalla para añadir un nuevo préstamo.
 class AddLoanScreen extends StatefulWidget {
   const AddLoanScreen({super.key});
 
@@ -21,16 +19,32 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
   final TextEditingController _clientNameController = TextEditingController();
   final TextEditingController _amountController = TextEditingController();
   final TextEditingController _interestRateController = TextEditingController();
-  final TextEditingController _termMonthsController = TextEditingController();
+  final TextEditingController _termValueController = TextEditingController();
+  final TextEditingController _whatsappNumberController = TextEditingController();
+  final TextEditingController _phoneNumberController = TextEditingController();
+
   DateTime _startDate = DateTime.now();
   DateTime _dueDate = DateTime.now().add(const Duration(days: 30));
+
+  String _selectedPaymentFrequency = 'Mensual';
+  final List<String> _paymentFrequencies = ['Diario', 'Semanal', 'Quincenal', 'Mensual'];
+
+  String _currentTermUnitLabel = 'Meses';
+
+  @override
+  void initState() {
+    super.initState();
+    _updateDueDateBasedOnTerm();
+  }
 
   @override
   void dispose() {
     _clientNameController.dispose();
     _amountController.dispose();
     _interestRateController.dispose();
-    _termMonthsController.dispose();
+    _termValueController.dispose();
+    _whatsappNumberController.dispose();
+    _phoneNumberController.dispose();
     super.dispose();
   }
 
@@ -45,10 +59,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
       setState(() {
         if (isStartDate) {
           _startDate = picked;
-          if (_termMonthsController.text.isNotEmpty) {
-            final int term = int.tryParse(_termMonthsController.text) ?? 0;
-            _dueDate = DateTime(_startDate.year, _startDate.month + term, _startDate.day);
-          }
+          _updateDueDateBasedOnTerm();
         } else {
           _dueDate = picked;
         }
@@ -57,30 +68,74 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
   }
 
   void _updateDueDateBasedOnTerm() {
-    if (_termMonthsController.text.isNotEmpty) {
-      final int term = int.tryParse(_termMonthsController.text) ?? 0;
+    if (_termValueController.text.isNotEmpty) {
+      final int term = int.tryParse(_termValueController.text) ?? 0;
+      DateTime calculatedDueDate = _startDate;
+
       setState(() {
-        _dueDate = DateTime(_startDate.year, _startDate.month + term, _startDate.day);
+        switch (_selectedPaymentFrequency) {
+          case 'Diario':
+            calculatedDueDate = _startDate.add(Duration(days: term));
+            break;
+          case 'Semanal':
+            calculatedDueDate = _startDate.add(Duration(days: term * 7));
+            break;
+          case 'Quincenal':
+            calculatedDueDate = _startDate.add(Duration(days: term * 15));
+            break;
+          case 'Mensual':
+          default:
+            calculatedDueDate = DateTime(_startDate.year, _startDate.month + term, _startDate.day);
+            break;
+        }
+        _dueDate = calculatedDueDate;
       });
     }
+  }
+
+  void _updateTermUnitLabel(String? frequency) {
+    setState(() {
+      _selectedPaymentFrequency = frequency!;
+      switch (frequency) {
+        case 'Diario':
+          _currentTermUnitLabel = 'Días';
+          break;
+        case 'Semanal':
+          _currentTermUnitLabel = 'Semanas';
+          break;
+        case 'Quincenal':
+          _currentTermUnitLabel = 'Quincenas';
+          break;
+        case 'Mensual':
+        default:
+          _currentTermUnitLabel = 'Meses';
+          break;
+      }
+      _updateDueDateBasedOnTerm();
+    });
   }
 
   void _saveLoan() {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
-      // Convertir la tasa de interés de porcentaje (ej. 50) a decimal (0.50)
+      final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+      final String cleanedAmountText = _amountController.text.replaceAll('\$', '').trim();
+      final double parsedAmount = currencyFormatter.parse(cleanedAmountText).toDouble();
       double interestRateDecimal = double.parse(_interestRateController.text) / 100;
 
       final newLoan = LoanModel(
         clientId: _clientNameController.text,
-        // Limpiar el formato de moneda antes de parsear a double
-        amount: double.parse(_amountController.text.replaceAll(RegExp(r'[^\d]+'), '')), // Eliminar todo lo que no sea dígito
+        amount: parsedAmount,
         interestRate: interestRateDecimal,
-        termMonths: int.parse(_termMonthsController.text),
+        termValue: int.parse(_termValueController.text),
         startDate: _startDate,
         dueDate: _dueDate,
         status: 'activo',
+        paymentFrequency: _selectedPaymentFrequency,
+        whatsappNumber: _whatsappNumberController.text.isEmpty ? null : _whatsappNumberController.text,
+        phoneNumber: _phoneNumberController.text.isEmpty ? null : _phoneNumberController.text,
+        termUnit: _currentTermUnitLabel,
       );
 
       Provider.of<LoanProvider>(context, listen: false).addLoan(newLoan).then((_) {
@@ -96,11 +151,140 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     }
   }
 
+  void _showPaymentSimulation(BuildContext context) {
+    final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+
+    final String cleanedAmountText = _amountController.text.replaceAll('\$', '').trim();
+
+    double amount;
+    try {
+      amount = currencyFormatter.parse(cleanedAmountText).toDouble();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor, ingresa un monto válido.')),
+      );
+      return;
+    }
+
+    final double annualRate = double.tryParse(_interestRateController.text) ?? 0;
+    final int cuotas = int.tryParse(_termValueController.text) ?? 1;
+    final DateTime startDate = _startDate;
+
+    if (amount <= 0 || annualRate <= 0 || cuotas <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor, ingresa valores válidos para la tasa y el número de cuotas.')),
+      );
+      return;
+    }
+
+    // Ajustar la tasa de interés y duración según frecuencia
+    double periodRate;
+    Duration periodDuration;
+
+    switch (_selectedPaymentFrequency) {
+      case 'Diario':
+        periodRate = (annualRate / 100) / 365;
+        periodDuration = const Duration(days: 1);
+        break;
+      case 'Semanal':
+        periodRate = (annualRate / 100) / 52;
+        periodDuration = const Duration(days: 7);
+        break;
+      case 'Quincenal':
+        periodRate = (annualRate / 100) / 24;
+        periodDuration = const Duration(days: 15);
+        break;
+      case 'Mensual':
+      default:
+        periodRate = (annualRate / 100) / 12;
+        periodDuration = const Duration(days: 30);
+        break;
+    }
+
+    final List<Widget> cuotasCards = [];
+    final double capitalFijo = amount / cuotas;
+    double saldoPendiente = amount;
+
+    double totalIntereses = 0;
+    double totalPagar = 0;
+
+    for (int i = 0; i < cuotas; i++) {
+      // 🎨 Se cambió el cálculo de interés para que sea sobre el saldo pendiente
+      final double interes = saldoPendiente * periodRate;
+      final double total = capitalFijo + interes;
+      final DateTime fecha = startDate.add(periodDuration * i);
+
+      totalIntereses += interes;
+      totalPagar += total;
+
+      cuotasCards.add(
+        Card(
+          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+          child: ListTile(
+            title: Text('Cuota ${i + 1}'),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Capital: ${currencyFormatter.format(capitalFijo)}'),
+                Text('Interés: ${currencyFormatter.format(interes)}'),
+                Text('Total a pagar: ${currencyFormatter.format(total)}'),
+                // 🎨 Se añadió la visualización del saldo pendiente en cada cuota
+                Text('Saldo pendiente: ${currencyFormatter.format(saldoPendiente - capitalFijo)}'),
+                Text('Fecha: ${DateFormat('dd/MM/yyyy').format(fecha)}'),
+              ],
+            ),
+          ),
+        ),
+      );
+      saldoPendiente -= capitalFijo;
+    }
+
+    // Resumen final
+    cuotasCards.add(
+      Card(
+        color: Colors.grey[200],
+        margin: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        child: ListTile(
+          title: const Text(
+            'Resumen del Préstamo',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+          ),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Capital total: ${currencyFormatter.format(amount)}'),
+              Text('Intereses totales: ${currencyFormatter.format(totalIntereses)}'),
+              Text(
+                'Total a pagar: ${currencyFormatter.format(totalPagar)}',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SingleChildScrollView(
+        child: Column(
+          children: [
+            const SizedBox(height: 12),
+            const Text('Simulación de Pagos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ...cuotasCards,
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF5F5F5),
       appBar: AppBar(
         title: const Text('Añadir Nuevo Préstamo'),
+        backgroundColor: const Color(0xFF1E88E5),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -123,20 +307,22 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 decoration: const InputDecoration(labelText: 'Monto del Préstamo'),
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [
-                  // CAMBIO: Usamos CurrencyTextInputFormatter.currency()
                   CurrencyTextInputFormatter.currency(
-                    locale: 'es_CO', // Configura tu localización para el formato de moneda
-                    decimalDigits: 2, // 2 decimales
-                    symbol: '\$', // Símbolo de moneda
-                    enableNegative: false, // Opcional: no permitir números negativos
-                    // Otros parámetros como name, turnOffGrouping, etc., pueden ir aquí
+                    locale: 'es_CO',
+                    decimalDigits: 2,
+                    symbol: '\$',
+                    enableNegative: false,
                   ),
                 ],
                 validator: (value) {
-                  // Validación: Limpiar el valor para verificar si es un número válido
-                  // Regex mejorada para limpiar antes de parsear, considerando el formato del formatter
-                  final cleanValue = value?.replaceAll(RegExp(r'[^\d]+'), ''); // Eliminar todo excepto dígitos
-                  if (cleanValue == null || cleanValue.isEmpty || double.tryParse(cleanValue) == null) {
+                  try {
+                    final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+                    final String cleanedValue = value?.replaceAll('\$', '').trim() ?? '0';
+                    final double parsedAmount = currencyFormatter.parse(cleanedValue).toDouble();
+                    if (parsedAmount <= 0) {
+                      return 'Por favor, ingresa un monto válido';
+                    }
+                  } catch (e) {
                     return 'Por favor, ingresa un monto válido';
                   }
                   return null;
@@ -146,19 +332,42 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 controller: _interestRateController,
                 decoration: const InputDecoration(
                   labelText: 'Tasa de Interés Anual',
-                  suffixText: '%', // Muestra un sufijo de porcentaje
+                  suffixText: '%',
                 ),
                 keyboardType: TextInputType.numberWithOptions(decimal: true),
                 validator: (value) {
-                  if (value == null || value.isEmpty || double.tryParse(value) == null) {
+                  if (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0) {
                     return 'Por favor, ingresa una tasa válida';
                   }
                   return null;
                 },
               ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _selectedPaymentFrequency,
+                decoration: const InputDecoration(
+                  labelText: 'Frecuencia de Pago',
+                  border: OutlineInputBorder(),
+                ),
+                items: _paymentFrequencies.map((String frequency) {
+                  return DropdownMenuItem<String>(
+                    value: frequency,
+                    child: Text(frequency),
+                  );
+                }).toList(),
+                onChanged: _updateTermUnitLabel,
+                validator: (value) {
+                  if (value == null || value.isEmpty) {
+                    return 'Por favor, selecciona una frecuencia';
+                  }
+                  return null;
+                },
+              ),
               TextFormField(
-                controller: _termMonthsController,
-                decoration: const InputDecoration(labelText: 'Plazo (meses)'),
+                controller: _termValueController,
+                decoration: InputDecoration(
+                  labelText: 'Plazo ($_currentTermUnitLabel)',
+                ),
                 keyboardType: TextInputType.number,
                 onChanged: (_) => _updateDueDateBasedOnTerm(),
                 validator: (value) {
@@ -167,6 +376,26 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _whatsappNumberController,
+                decoration: const InputDecoration(
+                  labelText: 'Número de WhatsApp',
+                  hintText: 'Ej: +57 3XX YYY ZZZZ',
+                  prefixIcon: Icon(FontAwesomeIcons.whatsapp),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _phoneNumberController,
+                decoration: const InputDecoration(
+                  labelText: 'Número de Teléfono',
+                  hintText: 'Ej: +57 3XX YYY ZZZZ',
+                  prefixIcon: Icon(Icons.phone),
+                ),
+                keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: 16),
               ListTile(
@@ -180,13 +409,25 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 onTap: () => _selectDate(context, false),
               ),
               const SizedBox(height: 20),
-              ElevatedButton(
-                onPressed: _saveLoan,
-                child: const Text('Guardar Préstamo'),
+              SizedBox(
+                height: 48,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.calculate),
+                  label: const Text('Simular pagos'),
+                  onPressed: () {
+                    _showPaymentSimulation(context);
+                  },
+                ),
               ),
             ],
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _saveLoan,
+        backgroundColor: const Color(0xFF43A047),
+        child: const Icon(Icons.save),
+        tooltip: 'Guardar Préstamo',
       ),
     );
   }
