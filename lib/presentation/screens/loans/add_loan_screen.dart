@@ -6,6 +6,8 @@ import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:intl/intl.dart';
 import 'package:currency_text_input_formatter/currency_text_input_formatter.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:loan_app/domain/entities/client.dart';
+import 'package:uuid/uuid.dart';
 
 class AddLoanScreen extends StatefulWidget {
   const AddLoanScreen({super.key});
@@ -115,39 +117,62 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     });
   }
 
-  void _saveLoan() {
+  Future<void> _saveLoan() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
-      final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
-      final String cleanedAmountText = _amountController.text.replaceAll('\$', '').trim();
-      final double parsedAmount = currencyFormatter.parse(cleanedAmountText).toDouble();
-      double interestRateDecimal = double.parse(_interestRateController.text) / 100;
+      try {
+        final loanProvider = Provider.of<LoanProvider>(context, listen: false);
 
-      final newLoan = LoanModel(
-        clientId: _clientNameController.text,
-        amount: parsedAmount,
-        interestRate: interestRateDecimal,
-        termValue: int.parse(_termValueController.text),
-        startDate: _startDate,
-        dueDate: _dueDate,
-        status: 'activo',
-        paymentFrequency: _selectedPaymentFrequency,
-        whatsappNumber: _whatsappNumberController.text.isEmpty ? null : _whatsappNumberController.text,
-        phoneNumber: _phoneNumberController.text.isEmpty ? null : _phoneNumberController.text,
-        termUnit: _currentTermUnitLabel,
-      );
+        // 1. Crear un nuevo objeto Client
+        final newClient = Client(
+          id: const Uuid().v4(),
+          name: _clientNameController.text,
+          lastName: '',
+          identification: '',
+          phone: _phoneNumberController.text,
+          whatsapp: _whatsappNumberController.text,
+        );
 
-      Provider.of<LoanProvider>(context, listen: false).addLoan(newLoan).then((_) {
+        // 2. Guardar el cliente usando el LoanProvider
+        await loanProvider.addClient(newClient);
+
+        final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+        final String cleanedAmountText = _amountController.text.replaceAll('\$', '').trim();
+        final double parsedAmount = currencyFormatter.parse(cleanedAmountText).toDouble();
+        double interestRateDecimal = double.parse(_interestRateController.text) / 100;
+
+        // 3. Crear el objeto Loan usando el ID y el NOMBRE del cliente
+        final newLoan = LoanModel(
+          id: const Uuid().v4(),
+          clientId: newClient.id,
+          clientName: newClient.name, // NUEVO: guardar el nombre del cliente
+          amount: parsedAmount,
+          interestRate: interestRateDecimal,
+          termValue: int.parse(_termValueController.text),
+          startDate: _startDate,
+          dueDate: _dueDate,
+          status: 'activo',
+          paymentFrequency: _selectedPaymentFrequency,
+          whatsappNumber: _whatsappNumberController.text.isEmpty ? null : _whatsappNumberController.text,
+          phoneNumber: _phoneNumberController.text.isEmpty ? null : _phoneNumberController.text,
+          termUnit: _currentTermUnitLabel,
+        );
+
+        // 4. Guardar el préstamo
+        await loanProvider.addLoan(newLoan);
+
+        // 5. Mostrar éxito y navegar atrás
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Préstamo añadido con éxito!')),
+          const SnackBar(content: Text('Préstamo y cliente añadidos con éxito!')),
         );
         Navigator.of(context).pop();
-      }).catchError((error) {
+
+      } catch (error) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al añadir préstamo: $error')),
+          SnackBar(content: Text('Error al añadir préstamo y cliente: $error')),
         );
-      });
+      }
     }
   }
 
@@ -209,7 +234,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     double totalPagar = 0;
 
     for (int i = 0; i < cuotas; i++) {
-      // 🎨 Se cambió el cálculo de interés para que sea sobre el saldo pendiente
       final double interes = saldoPendiente * periodRate;
       final double total = capitalFijo + interes;
       final DateTime fecha = startDate.add(periodDuration * i);
@@ -228,7 +252,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 Text('Capital: ${currencyFormatter.format(capitalFijo)}'),
                 Text('Interés: ${currencyFormatter.format(interes)}'),
                 Text('Total a pagar: ${currencyFormatter.format(total)}'),
-                // 🎨 Se añadió la visualización del saldo pendiente en cada cuota
                 Text('Saldo pendiente: ${currencyFormatter.format(saldoPendiente - capitalFijo)}'),
                 Text('Fecha: ${DateFormat('dd/MM/yyyy').format(fecha)}'),
               ],
@@ -239,7 +262,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
       saldoPendiente -= capitalFijo;
     }
 
-    // Resumen final
     cuotasCards.add(
       Card(
         color: Colors.grey[200],
@@ -305,7 +327,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
               TextFormField(
                 controller: _amountController,
                 decoration: const InputDecoration(labelText: 'Monto del Préstamo'),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [
                   CurrencyTextInputFormatter.currency(
                     locale: 'es_CO',
@@ -334,7 +356,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                   labelText: 'Tasa de Interés Anual',
                   suffixText: '%',
                 ),
-                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 validator: (value) {
                   if (value == null || value.isEmpty || double.tryParse(value) == null || double.parse(value) <= 0) {
                     return 'Por favor, ingresa una tasa válida';

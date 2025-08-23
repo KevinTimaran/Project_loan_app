@@ -6,47 +6,51 @@ import 'package:flutter/foundation.dart';
 
 part 'loan_model.g.dart';
 
-@HiveType(typeId: 3) // Asegúrate de que este typeId sea único y no usado por otros modelos.
+@HiveType(typeId: 3)
 class LoanModel extends HiveObject {
   @HiveField(0)
   late String id;
 
   @HiveField(1)
-  late String clientId; // Nombre del cliente
+  late String clientId; // ID único del cliente
 
   @HiveField(2)
-  late double amount;
+  late String clientName; // NUEVO: Nombre del cliente para mostrar
 
   @HiveField(3)
-  late double interestRate; // Tasa de interés ANUAL (decimal, ej. 0.05)
+  late double amount;
 
   @HiveField(4)
-  late int termValue; // Número de unidades de plazo
+  late double interestRate;
 
   @HiveField(5)
-  late DateTime startDate;
+  late int termValue;
 
   @HiveField(6)
-  late DateTime dueDate;
+  late DateTime startDate;
 
   @HiveField(7)
-  late String status;
+  late DateTime dueDate;
 
   @HiveField(8)
-  late String paymentFrequency; // Frecuencia de pago (ej. 'Diario', 'Semanal', 'Quincenal', 'Mensual')
+  late String status;
 
   @HiveField(9)
-  late String? whatsappNumber;
+  late String paymentFrequency;
 
   @HiveField(10)
-  late String? phoneNumber;
+  late String? whatsappNumber;
 
   @HiveField(11)
-  late String termUnit; // Unidad de plazo (ej. 'Días', 'Semanas', 'Quincenas', 'Meses')
+  late String? phoneNumber;
+
+  @HiveField(12)
+  late String termUnit;
 
   LoanModel({
     String? id,
     required this.clientId,
+    required this.clientName, // NUEVO: parámetro requerido
     required this.amount,
     required this.interestRate,
     required this.termValue,
@@ -127,6 +131,7 @@ class LoanModel extends HiveObject {
     return {
       'id': id,
       'clientId': clientId,
+      'clientName': clientName, // NUEVO: incluir nombre del cliente
       'amount': amount,
       'interestRate': interestRate,
       'termValue': termValue,
@@ -144,6 +149,7 @@ class LoanModel extends HiveObject {
 
   @override
   String toString() {
-    return 'LoanModel(id: $id, clientName: $clientId, amount: $amount, interestRate: $interestRate, termValue: $termValue, termUnit: $termUnit, startDate: $startDate, dueDate: $dueDate, status: $status, frequency: $paymentFrequency, whatsapp: $whatsappNumber, phone: $phoneNumber)';
+    return 'LoanModel(id: $id, clientId: $clientId, clientName: $clientName, amount: $amount, interestRate: $interestRate, termValue: $termValue, termUnit: $termUnit, startDate: $startDate, dueDate: $dueDate, status: $status, frequency: $paymentFrequency, whatsapp: $whatsappNumber, phone: $phoneNumber)';
   }
+  
 }

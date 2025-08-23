@@ -1,13 +1,17 @@
+// lib/presentation/screens/clients/client_list_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/usecases/client/get_clients.dart';
 import 'package:loan_app/domain/usecases/client/search_clients.dart';
 import 'package:loan_app/presentation/screens/clients/client_form_screen.dart';
-import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart'; // Necesario para ver detalles
+import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart';
 
 class ClientListScreen extends StatefulWidget {
-  const ClientListScreen({super.key});
+  final String? searchTerm;
+
+  const ClientListScreen({super.key, this.searchTerm});
 
   @override
   State<ClientListScreen> createState() => _ClientListScreenState();
@@ -25,6 +29,12 @@ class _ClientListScreenState extends State<ClientListScreen> {
     super.initState();
     _loadClients();
     _searchController.addListener(_onSearchChanged);
+
+    // Si se recibió un término de búsqueda desde la pantalla anterior, lo usa para la búsqueda
+    if (widget.searchTerm != null && widget.searchTerm!.isNotEmpty) {
+      _searchController.text = widget.searchTerm!;
+      _onSearchChanged();
+    }
   }
 
   @override
@@ -38,7 +48,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
     final clients = await _getClients.call();
     setState(() {
       _clients = clients;
-      _filteredClients = clients; // Inicialmente, todos los clientes
+      _filteredClients = clients;
     });
   }
 
@@ -68,7 +78,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
                 context,
                 MaterialPageRoute(builder: (context) => const ClientFormScreen()),
               );
-              _loadClients(); // Recargar clientes después de agregar uno nuevo
+              _loadClients();
             },
           ),
         ],
@@ -106,7 +116,7 @@ class _ClientListScreenState extends State<ClientListScreen> {
                                 builder: (context) => ClientDetailScreen(clientId: client.id),
                               ),
                             );
-                            _loadClients(); // Recargar clientes si se editó o eliminó
+                            _loadClients();
                           },
                         ),
                       );

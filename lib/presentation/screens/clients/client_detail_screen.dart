@@ -146,7 +146,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
           children: [
             _buildInfoRow('Nombre:', '${_client!.name} ${_client!.lastName}'),
             _buildInfoRow('Identificación:', _client!.identification),
-            _buildInfoRow('Dirección:', _client!.address),
+            _buildInfoRow('Dirección:', _client!.address ?? 'N/A'),
             _buildInfoRow('Teléfono:', _client!.phone),
             _buildInfoRow('WhatsApp:', _client!.whatsapp),
             const Divider(),

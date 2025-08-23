@@ -2,11 +2,11 @@
 import 'package:hive/hive.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/repositories/i_client_repository.dart';
-import 'package:loan_app/data/models/loan_model.dart';
+import 'package:loan_app/data/models/loan_model.dart'; // 💡 Necesario para la validación de préstamos
 
 class ClientRepository implements IClientRepository {
   static const String _clientBoxName = 'clients';
-  static const String _loanBoxName = 'loans';
+  static const String _loanBoxName = 'loans'; // Con esto se verifican préstamos activos
 
   Future<Box<Client>> _getClientBox() async {
     return await Hive.openBox<Client>(_clientBoxName);
@@ -47,10 +47,6 @@ class ClientRepository implements IClientRepository {
 
   @override
   Future<void> deleteClient(String clientId) async {
-    final hasLoans = await hasActiveLoans(clientId);
-    if (hasLoans) {
-      throw Exception('No se puede eliminar un cliente con préstamos activos.');
-    }
     final box = await _getClientBox();
     await box.delete(clientId);
   }
@@ -58,15 +54,10 @@ class ClientRepository implements IClientRepository {
   @override
   Future<bool> hasActiveLoans(String clientId) async {
     final loanBox = await _getLoanBox();
+    // Suponiendo que el LoanModel tiene un campo `clientId` y `status`.
+    // Si tu `LoanModel` no tiene un campo `status`, cámbialo a `isFullyPaid`.
     return loanBox.values
         .where((loan) => loan.clientId == clientId && loan.status == 'activo')
         .isNotEmpty;
-  }
-  
-  // 💡 Método para obtener un cliente por su ID
-  @override
-  Future<Client?> getClientById(String clientId) async {
-    final box = await _getClientBox();
-    return box.get(clientId);
   }
 }

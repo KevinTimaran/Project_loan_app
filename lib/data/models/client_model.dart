@@ -1,10 +1,11 @@
-import 'package:hive/hive.dart';
+// lib/data/models/client_model.dart
 import 'package:loan_app/domain/entities/client.dart';
+import 'package:hive/hive.dart';
 
-part 'client_model.g.dart'; // Este archivo se generará automáticamente
+part 'client_model.g.dart';
 
-@HiveType(typeId: 0) // El typeId debe ser único para cada modelo
-class ClientModel extends Client {
+@HiveType(typeId: 2)
+class ClientModel extends HiveObject {
   @HiveField(0)
   final String id;
   @HiveField(1)
@@ -14,7 +15,7 @@ class ClientModel extends Client {
   @HiveField(3)
   String identification;
   @HiveField(4)
-  String address;
+  String? address; // 💡 Cambiado a String?
   @HiveField(5)
   String phone;
   @HiveField(6)
@@ -25,20 +26,11 @@ class ClientModel extends Client {
     required this.name,
     required this.lastName,
     required this.identification,
-    required this.address,
+    this.address,
     required this.phone,
     required this.whatsapp,
-  }) : super(
-          id: id,
-          name: name,
-          lastName: lastName,
-          identification: identification,
-          address: address,
-          phone: phone,
-          whatsapp: whatsapp,
-        );
+  });
 
-  // Método para convertir de entidad a modelo
   factory ClientModel.fromEntity(Client client) {
     return ClientModel(
       id: client.id,
@@ -51,7 +43,6 @@ class ClientModel extends Client {
     );
   }
 
-  // Método para convertir de modelo a entidad
   Client toEntity() {
     return Client(
       id: id,

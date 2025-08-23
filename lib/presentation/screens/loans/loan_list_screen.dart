@@ -9,6 +9,8 @@ import 'dart:math';
 import 'package:hive/hive.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:loan_app/data/repositories/client_repository.dart';
+import 'package:loan_app/domain/entities/client.dart';
 
 class LoanListScreen extends StatelessWidget {
   const LoanListScreen({super.key});
@@ -27,7 +29,6 @@ class LoanListScreen extends StatelessWidget {
       path: phoneNumber,
     );
     if (await canLaunchUrl(launchUri)) {
-
       await launchUrl(launchUri);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -145,8 +146,6 @@ class LoanListScreen extends StatelessWidget {
               final bool isEvenRow = index % 2 == 0;
               final Color rowBackgroundColor = isEvenRow ? Colors.white : alternateRowColor;
 
-              final String clientName = loan.clientId;
-
               String paymentLabel = 'Pago ';
               switch (loan.paymentFrequency) {
                 case 'Diario':
@@ -164,109 +163,132 @@ class LoanListScreen extends StatelessWidget {
                   break;
               }
 
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                color: rowBackgroundColor,
-                elevation: 1,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                child: Stack(
-                  children: [
-                    ListTile(
-                      leading: Icon(Icons.account_balance_wallet, color: iconColor),
-                      title: Text(
-                        'Cliente: $clientName',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Monto: ${currencyFormatter.format(loan.amount)}',
-                            style: TextStyle(fontSize: 14, color: textColor),
-                          ),
-                          Text(
-                            'Tasa: ${(loan.interestRate * 100).toStringAsFixed(2)}%',
-                            style: TextStyle(fontSize: 14, color: textColor),
-                          ),
-                          Text(
-                            'Plazo: ${loan.termValue} ${loan.termUnit}',
-                            style: TextStyle(fontSize: 14, color: textColor),
-                          ),
-                          Text(
-                            'Frecuencia: ${loan.paymentFrequency}',
-                            style: TextStyle(fontSize: 14, color: textColor),
-                          ),
-                          Text(
-                            'Estado: ${loan.status.toUpperCase()}',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.bold,
-                              color: loan.isFullyPaid
-                                  ? mainGreen
-                                  : (loan.status == 'atrasado'
-                                      ? alertRed
-                                      : warningOrange),
-                            ),
-                          ),
-                          Text(
-                            '$paymentLabel ${currencyFormatter.format(loan.calculatedPaymentAmount)}',
-                            style: TextStyle(fontSize: 14, color: textColor),
-                          ),
-                          Text(
-                            'Vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}',
-                            style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.7)),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.only(top: 8.0),
-                            child: Row(
-                              children: [
-                                if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty)
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
-                                      icon: const Icon(Icons.phone, size: 18),
-                                      label: const Text('Llamar'),
-                                      style: ElevatedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                                      ),
-                                    ),
-                                  ),
-                                if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty && loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
-                                  const SizedBox(width: 8),
-                                if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
-                                  Expanded(
-                                    child: ElevatedButton.icon(
-                                      onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
-                                      icon: const Icon(FontAwesomeIcons.whatsapp, size: 18),
-                                      label: const Text('WhatsApp'),
-                                      style: ElevatedButton.styleFrom(
-                                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
+              return FutureBuilder<Client?>(
+                future: ClientRepository().getClientById(loan.clientId),
+                builder: (context, snapshot) {
+                  String clientName = 'Cargando...';
+                  if (snapshot.connectionState == ConnectionState.done) {
+                    if (snapshot.hasData && snapshot.data != null) {
+                      final client = snapshot.data!;
+                      clientName = '${client.name} ${client.lastName}';
+                    } else {
+                      clientName = 'Cliente no encontrado';
+                    }
+                  }
+
+                  return Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    color: rowBackgroundColor,
+                    elevation: 1,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8.0),
                     ),
-                    if (loan.id != null)
-                      Positioned(
-                        top: 8.0,
-                        right: 8.0,
-                        child: Text(
-                          'ID: ${loan.id}',
-                          style: TextStyle(
-                            color: textColor.withOpacity(0.5),
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
+                    // 💡 Usar un Stack para superponer la ID
+                    child: Stack(
+                      children: [
+                        ListTile(
+                          leading: Icon(Icons.account_balance_wallet, color: iconColor),
+                          title: Text(
+                            'Cliente: $clientName',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor),
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Monto: ${currencyFormatter.format(loan.amount)}',
+                                style: TextStyle(fontSize: 14, color: textColor),
+                              ),
+                              Text(
+                                'Tasa: ${(loan.interestRate * 100).toStringAsFixed(2)}%',
+                                style: TextStyle(fontSize: 14, color: textColor),
+                              ),
+                              Text(
+                                'Plazo: ${loan.termValue} ${loan.termUnit}',
+                                style: TextStyle(fontSize: 14, color: textColor),
+                              ),
+                              Text(
+                                'Frecuencia: ${loan.paymentFrequency}',
+                                style: TextStyle(fontSize: 14, color: textColor),
+                              ),
+                              Text(
+                                'Estado: ${loan.status.toUpperCase()}',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: loan.isFullyPaid
+                                      ? mainGreen
+                                      : (loan.status == 'atrasado'
+                                          ? alertRed
+                                          : warningOrange),
+                                ),
+                              ),
+                              Text(
+                                '$paymentLabel ${currencyFormatter.format(loan.calculatedPaymentAmount)}',
+                                style: TextStyle(fontSize: 14, color: textColor),
+                              ),
+                              Text(
+                                'Vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}',
+                                style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.7)),
+                              ),
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Row(
+                                  children: [
+                                    if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty)
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
+                                          icon: const Icon(Icons.phone, size: 18),
+                                          label: const Text('Llamar'),
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                                          ),
+                                        ),
+                                      ),
+                                    if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty && loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                      const SizedBox(width: 8),
+                                    if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                      Expanded(
+                                        child: ElevatedButton.icon(
+                                          onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
+                                          icon: const Icon(FontAwesomeIcons.whatsapp, size: 18),
+                                          label: const Text('WhatsApp'),
+                                          style: ElevatedButton.styleFrom(
+                                            padding: const EdgeInsets.symmetric(horizontal: 4),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                  ],
-                ),
+                        // 💡 Agregamos la ID en la esquina superior derecha
+                        Positioned(
+                          top: 8.0,
+                          right: 8.0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: primaryBlue,
+                              borderRadius: BorderRadius.circular(16.0),
+                            ),
+                            child: Text(
+                              'ID: ${loan.id.replaceAll(RegExp(r'[^0-9]'), '').substring(0, min(5, loan.id.length))}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               );
             },
           );

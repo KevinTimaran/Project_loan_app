@@ -1,6 +1,8 @@
 // lib/presentation/screens/home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
+import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
+import 'package:hive/hive.dart'; // Importación necesaria para Hive
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -44,17 +46,48 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _performSearch() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Buscando cliente: ${_searchController.text}')),
-    );
+    final searchTerm = _searchController.text.trim();
+    if (searchTerm.isNotEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => ClientListScreen(searchTerm: searchTerm),
+        ),
+      );
+    }
     _searchController.clear();
     FocusScope.of(context).unfocus();
+  }
+
+
+
+  // 💡 Método para borrar todas las bases de datos de Hive con impresiones de depuración
+  Future<void> _clearAllHiveBoxes() async {
+    try {
+      await Hive.deleteBoxFromDisk('clients');
+      await Hive.deleteBoxFromDisk('loans');
+      
+      // 💡 Impresiones de depuración para verificar el estado de las cajas
+      print('DEBUG: Borrando caja de clientes...');
+      final clientBoxExists = await Hive.boxExists('clients');
+      print('DEBUG: ¿La caja de clientes existe después de borrar? $clientBoxExists');
+      
+      print('DEBUG: Borrando caja de préstamos...');
+      final loanBoxExists = await Hive.boxExists('loans');
+      print('DEBUG: ¿La caja de préstamos existe después de borrar? $loanBoxExists');
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bases de datos de clientes y préstamos borradas correctamente.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error al borrar las bases de datos: $e')),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final Color primaryBlue = Theme.of(context).appBarTheme.backgroundColor!;
-    // CORRECCIÓN AQUÍ: Acceso seguro a mainGreen
     final Color mainGreen = Theme.of(context).elevatedButtonTheme.style?.backgroundColor?.resolve({}) ?? const Color(0xFF43A047);
 
     final Color textColor = Theme.of(context).textTheme.bodyLarge!.color!;
@@ -71,6 +104,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         ),
         centerTitle: true,
         elevation: 0,
+        actions: [
+          // 💡 Botón para borrar todas las bases de datos
+          IconButton(
+            icon: const Icon(Icons.cleaning_services),
+            onPressed: () {
+              showDialog(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Confirmar Borrado General'),
+                  content: const Text('Esta acción borrará todos los clientes y préstamos. ¿Estás seguro?'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(),
+                      child: const Text('Cancelar'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(ctx).pop();
+                        _clearAllHiveBoxes();
+                      },
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                      child: const Text('Borrar Todo'),
+                    ),
+                  ],
+                ),
+              );
+            },
+            tooltip: 'Borrar todas las bases de datos (solo para pruebas)',
+          ),
+        ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
@@ -184,8 +247,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       icon: Icons.people,
                       title: 'Gestión de Clientes',
                       onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Módulo de Clientes en desarrollo.')),
+                        Navigator.of(context).push(
+                          MaterialPageRoute(builder: (context) => const ClientListScreen()),
                         );
                       },
                       iconColor: orangeModule,

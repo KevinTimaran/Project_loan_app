@@ -1,20 +1,61 @@
-// lib/main.dart
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:loan_app/data/models/loan_model.dart';
+import 'package:loan_app/domain/entities/client.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'package:hive/hive.dart';
-
-import 'package:loan_app/core/database/app_database.dart';
 import 'package:loan_app/presentation/providers/loan_provider.dart';
-import 'package:loan_app/presentation/screens/auth/pin_setup_screen.dart';
-import 'package:loan_app/presentation/screens/auth/pin_validation_screen.dart'; // <--- Make sure this is imported
-import 'package:loan_app/presentation/screens/home_screen.dart'; // <--- Make sure this is imported
+import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
+import 'package:loan_app/presentation/screens/loans/add_loan_screen.dart';
 import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
+import 'package:loan_app/presentation/screens/home_screen.dart';
+import 'package:loan_app/presentation/screens/auth/pin_validation_screen.dart';
+import 'dart:io';
+
+Future<void> clearAllHiveData() async {
+  try {
+    if (Platform.isLinux || Platform.isWindows) {
+      final appDocumentDir = await getApplicationDocumentsDirectory();
+      Hive.init(appDocumentDir.path);
+      print('DEBUG: Ruta de Hive en Linux/Windows: ${appDocumentDir.path}');
+    } else {
+      await Hive.initFlutter();
+    }
+
+    final clientBox = await Hive.openBox<Client>('clients');
+    await clientBox.clear();
+    print('DEBUG: Caja "clients" ha sido limpiada.');
+
+    final loanBox = await Hive.openBox<LoanModel>('loans');
+    await loanBox.clear();
+    print('DEBUG: Caja "loans" ha sido limpiada.');
+
+    await clientBox.close();
+    await loanBox.close();
+
+    await Hive.close();
+    print('DEBUG: Todas las bases de datos de Hive han sido cerradas y limpiadas.');
+
+  } catch (e) {
+    print('ERROR: Fallo al limpiar la base de datos de Hive: $e');
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AppDatabase.init();
-  await Hive.deleteBoxFromDisk('loans');
+
+  await clearAllHiveData();
+
+  if (Platform.isLinux || Platform.isWindows) {
+    final appDocumentDir = await getApplicationDocumentsDirectory();
+    Hive.init(appDocumentDir.path);
+  } else {
+    await Hive.initFlutter();
+  }
+
+  Hive.registerAdapter(ClientAdapter());
+  Hive.registerAdapter(LoanModelAdapter());
+
   runApp(const MyApp());
 }
 
@@ -23,48 +64,35 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Define the app's color palette and theme.
-    final ThemeData appTheme = ThemeData(
-      // 3.1.1 System Colors: Background, Header, Text
-      scaffoldBackgroundColor: const Color(0xFFF5F5F5),
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF1E88E5), // Professional Blue
-        foregroundColor: Colors.white,
-      ),
-      // 3.1.2 Typography: Use Roboto throughout the app.
-      textTheme: GoogleFonts.robotoTextTheme(Theme.of(context).textTheme).apply(
-        bodyColor: const Color(0xFF212121), // General text color
-      ),
-      // 3.1.3 Buttons: Style for Elevated Buttons
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF43A047), // Green for CTA
-          foregroundColor: Colors.white,
-          minimumSize: const Size(double.infinity, 48), // Minimum height of 48px
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8.0), // Rounded corners
-          ),
-        ),
-      ),
-      visualDensity: VisualDensity.adaptivePlatformDensity,
-    );
-
     return ChangeNotifierProvider(
-      create: (context) => LoanProvider(),
+      create: (context) => LoanProvider()..loadLoans(),
       child: MaterialApp(
         title: 'LoanApp',
-        theme: appTheme, // Apply the defined theme.
-
-        // --- THIS IS CRITICAL! The app's starting point ---
-        home: const PinSetupScreen(), // The app ALWAYS starts at PinSetupScreen
-        // ---------------------------------------------------
-
-        // Add routes here so other screens can be accessed by name.
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+          appBarTheme: const AppBarTheme(
+            color: Color(0xFF1E88E5),
+            iconTheme: IconThemeData(color: Colors.white),
+            titleTextStyle: TextStyle(color: Colors.white),
+          ),
+          floatingActionButtonTheme: const FloatingActionButtonThemeData(
+            backgroundColor: Color(0xFF1E88E5),
+            foregroundColor: Colors.white,
+          ),
+          elevatedButtonTheme: ElevatedButtonThemeData(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF1E88E5),
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ),
+        initialRoute: '/',
         routes: {
-          '/home': (context) => const HomeScreen(), // Route for the new HomeScreen
-          '/loanList': (context) => const LoanListScreen(), // Route for the loan list
-          '/pinValidation': (context) => const PinValidationScreen(), // Route for PIN validation
-          // Add routes for other future screens (clients, payments, etc.) here
+          '/': (context) => const PinValidationScreen(), // Establece PinScreen como la ruta inicial
+          '/home': (context) => const HomeScreen(),
+          '/clientList': (context) => const ClientListScreen(),
+          '/addLoan': (context) => const AddLoanScreen(),
+          '/loanList': (context) => const LoanListScreen(),
         },
       ),
     );

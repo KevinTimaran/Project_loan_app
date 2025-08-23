@@ -1,19 +1,33 @@
-class Client {
+// lib/domain/entities/client.dart
+import 'package:hive/hive.dart';
+import 'package:uuid/uuid.dart';
+
+part 'client.g.dart';
+
+@HiveType(typeId: 1)
+class Client extends HiveObject {
+  @HiveField(0)
   final String id;
+  @HiveField(1)
   String name;
+  @HiveField(2)
   String lastName;
+  @HiveField(3)
   String identification;
-  String address;
+  @HiveField(4)
+  String? address; // 💡 Ahora es opcional
+  @HiveField(5)
   String phone;
+  @HiveField(6)
   String whatsapp;
 
   Client({
-    required this.id,
+    String? id,
     required this.name,
-    required this.lastName,
-    required this.identification,
-    required this.address,
+    this.lastName = '',
+    this.identification = '',
+    this.address,
     required this.phone,
     required this.whatsapp,
-  });
+  }) : id = id ?? const Uuid().v4();
 }

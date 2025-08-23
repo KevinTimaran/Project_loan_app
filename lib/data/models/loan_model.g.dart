@@ -19,46 +19,49 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
     return LoanModel(
       id: fields[0] as String?,
       clientId: fields[1] as String,
-      amount: fields[2] as double,
-      interestRate: fields[3] as double,
-      termValue: fields[4] as int,
-      startDate: fields[5] as DateTime,
-      dueDate: fields[6] as DateTime,
-      status: fields[7] as String,
-      paymentFrequency: fields[8] as String,
-      whatsappNumber: fields[9] as String?,
-      phoneNumber: fields[10] as String?,
-      termUnit: fields[11] as String,
+      clientName: fields[2] as String,
+      amount: fields[3] as double,
+      interestRate: fields[4] as double,
+      termValue: fields[5] as int,
+      startDate: fields[6] as DateTime,
+      dueDate: fields[7] as DateTime,
+      status: fields[8] as String,
+      paymentFrequency: fields[9] as String,
+      whatsappNumber: fields[10] as String?,
+      phoneNumber: fields[11] as String?,
+      termUnit: fields[12] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, LoanModel obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
       ..write(obj.clientId)
       ..writeByte(2)
-      ..write(obj.amount)
+      ..write(obj.clientName)
       ..writeByte(3)
-      ..write(obj.interestRate)
+      ..write(obj.amount)
       ..writeByte(4)
-      ..write(obj.termValue)
+      ..write(obj.interestRate)
       ..writeByte(5)
-      ..write(obj.startDate)
+      ..write(obj.termValue)
       ..writeByte(6)
-      ..write(obj.dueDate)
+      ..write(obj.startDate)
       ..writeByte(7)
-      ..write(obj.status)
+      ..write(obj.dueDate)
       ..writeByte(8)
-      ..write(obj.paymentFrequency)
+      ..write(obj.status)
       ..writeByte(9)
-      ..write(obj.whatsappNumber)
+      ..write(obj.paymentFrequency)
       ..writeByte(10)
-      ..write(obj.phoneNumber)
+      ..write(obj.whatsappNumber)
       ..writeByte(11)
+      ..write(obj.phoneNumber)
+      ..writeByte(12)
       ..write(obj.termUnit);
   }
 
