@@ -34,6 +34,7 @@ class ClientRepository implements IClientRepository {
     final lowerCaseQuery = query.toLowerCase();
     return box.values
         .where((client) =>
+            // 💡 Esta línea busca el nombre y apellido en el repositorio
             client.name.toLowerCase().contains(lowerCaseQuery) ||
             client.lastName.toLowerCase().contains(lowerCaseQuery))
         .toList();
@@ -62,8 +63,7 @@ class ClientRepository implements IClientRepository {
         .where((loan) => loan.clientId == clientId && loan.status == 'activo')
         .isNotEmpty;
   }
-  
-  // 💡 Método para obtener un cliente por su ID
+
   @override
   Future<Client?> getClientById(String clientId) async {
     final box = await _getClientBox();

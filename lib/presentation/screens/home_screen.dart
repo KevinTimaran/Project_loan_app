@@ -1,8 +1,11 @@
 // lib/presentation/screens/home_screen.dart
 import 'package:flutter/material.dart';
-import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:loan_app/data/repositories/client_repository.dart';
+import 'package:loan_app/domain/entities/client.dart';
+import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
-import 'package:hive/hive.dart'; // Importación necesaria para Hive
+import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -13,6 +16,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
   final TextEditingController _searchController = TextEditingController();
+  final ClientRepository _clientRepository = ClientRepository();
+  List<Client> _foundClients = [];
   bool _isOptionsExpanded = false;
   late AnimationController _arrowAnimationController;
   late Animation<double> _arrowAnimation;
@@ -25,10 +30,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       duration: const Duration(milliseconds: 300),
     );
     _arrowAnimation = Tween(begin: 0.0, end: 0.5).animate(_arrowAnimationController);
+    _searchController.addListener(_onSearchChanged);
   }
 
   @override
   void dispose() {
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _arrowAnimationController.dispose();
     super.dispose();
@@ -45,28 +52,25 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
-  void _performSearch() {
+  void _onSearchChanged() async {
     final searchTerm = _searchController.text.trim();
     if (searchTerm.isNotEmpty) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (context) => ClientListScreen(searchTerm: searchTerm),
-        ),
-      );
+      final clients = await _clientRepository.searchClients(searchTerm);
+      setState(() {
+        _foundClients = clients;
+      });
+    } else {
+      setState(() {
+        _foundClients = [];
+      });
     }
-    _searchController.clear();
-    FocusScope.of(context).unfocus();
   }
 
-
-
-  // 💡 Método para borrar todas las bases de datos de Hive con impresiones de depuración
   Future<void> _clearAllHiveBoxes() async {
     try {
       await Hive.deleteBoxFromDisk('clients');
       await Hive.deleteBoxFromDisk('loans');
       
-      // 💡 Impresiones de depuración para verificar el estado de las cajas
       print('DEBUG: Borrando caja de clientes...');
       final clientBoxExists = await Hive.boxExists('clients');
       print('DEBUG: ¿La caja de clientes existe después de borrar? $clientBoxExists');
@@ -89,9 +93,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Widget build(BuildContext context) {
     final Color primaryBlue = Theme.of(context).appBarTheme.backgroundColor!;
     final Color mainGreen = Theme.of(context).elevatedButtonTheme.style?.backgroundColor?.resolve({}) ?? const Color(0xFF43A047);
-
     final Color textColor = Theme.of(context).textTheme.bodyLarge!.color!;
-    final Color iconColor = const Color(0xFF424242);
     final Color alertRed = const Color(0xFFE53935);
     final Color orangeModule = Colors.orange.shade700;
     final Color purpleModule = Colors.purple.shade700;
@@ -105,7 +107,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         centerTitle: true,
         elevation: 0,
         actions: [
-          // 💡 Botón para borrar todas las bases de datos
           IconButton(
             icon: const Icon(Icons.cleaning_services),
             onPressed: () {
@@ -135,7 +136,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ],
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -179,15 +180,36 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8.0),
                   ),
-                  suffixIcon: IconButton(
-                    icon: Icon(Icons.search, color: primaryBlue),
-                    onPressed: _performSearch,
-                    tooltip: 'Buscar',
-                  ),
+                  suffixIcon: const Icon(Icons.search),
                 ),
-                onSubmitted: (_) => _performSearch(),
               ),
             ),
+            
+            if (_foundClients.isNotEmpty)
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _foundClients.length,
+                itemBuilder: (context, index) {
+                  final client = _foundClients[index];
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                    child: ListTile(
+                      title: Text('${client.name} ${client.lastName}'),
+                      // 💡 Aquí se muestra el ID del cliente
+                      subtitle: Text('ID: ${client.identification}'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ClientDetailScreen(clientId: client.id),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                },
+              ),
 
             InkWell(
               onTap: _toggleOptionsExpanded,
@@ -220,63 +242,61 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
             const SizedBox(height: 16),
 
-            Expanded(
-              child: AnimatedCrossFade(
-                duration: const Duration(milliseconds: 300),
-                crossFadeState: _isOptionsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-                firstChild: Container(),
-                secondChild: GridView.count(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 16,
-                  mainAxisSpacing: 16,
-                  childAspectRatio: 1.2,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.attach_money,
-                      title: 'Gestión de Préstamos',
-                      onTap: () {
-                        Navigator.of(context).pushNamed('/loanList');
-                      },
-                      iconColor: mainGreen,
-                    ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.people,
-                      title: 'Gestión de Clientes',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(builder: (context) => const ClientListScreen()),
-                        );
-                      },
-                      iconColor: orangeModule,
-                    ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.payment,
-                      title: 'Registro de Pagos',
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Módulo de Pagos en desarrollo.')),
-                        );
-                      },
-                      iconColor: purpleModule,
-                    ),
-                    _buildFeatureCard(
-                      context,
-                      icon: Icons.money_off,
-                      title: 'Gestión de Gastos',
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Módulo de Gastos en desarrollo.')),
-                        );
-                      },
-                      iconColor: alertRed,
-                    ),
-                  ],
-                ),
+            AnimatedCrossFade(
+              duration: const Duration(milliseconds: 300),
+              crossFadeState: _isOptionsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+              firstChild: Container(),
+              secondChild: GridView.count(
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 1.2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  _buildFeatureCard(
+                    context,
+                    icon: Icons.attach_money,
+                    title: 'Gestión de Préstamos',
+                    onTap: () {
+                      Navigator.of(context).pushNamed('/loanList');
+                    },
+                    iconColor: mainGreen,
+                  ),
+                  _buildFeatureCard(
+                    context,
+                    icon: Icons.people,
+                    title: 'Gestión de Clientes',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const ClientListScreen()),
+                      );
+                    },
+                    iconColor: orangeModule,
+                  ),
+                  _buildFeatureCard(
+                    context,
+                    icon: Icons.payment,
+                    title: 'Registro de Pagos',
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Módulo de Pagos en desarrollo.')),
+                      );
+                    },
+                    iconColor: purpleModule,
+                  ),
+                  _buildFeatureCard(
+                    context,
+                    icon: Icons.money_off,
+                    title: 'Gestión de Gastos',
+                    onTap: () {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Módulo de Gastos en desarrollo.')),
+                      );
+                    },
+                    iconColor: alertRed,
+                  ),
+                ],
               ),
             ),
           ],

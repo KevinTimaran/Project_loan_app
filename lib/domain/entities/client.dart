@@ -15,7 +15,7 @@ class Client extends HiveObject {
   @HiveField(3)
   String identification;
   @HiveField(4)
-  String? address; // 💡 Ahora es opcional
+  String? address;
   @HiveField(5)
   String phone;
   @HiveField(6)
@@ -25,7 +25,8 @@ class Client extends HiveObject {
     String? id,
     required this.name,
     this.lastName = '',
-    this.identification = '',
+    // 💡 Haz que el campo de identificación sea requerido
+    required this.identification,
     this.address,
     required this.phone,
     required this.whatsapp,
