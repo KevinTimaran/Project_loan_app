@@ -20,15 +20,17 @@ class Client extends HiveObject {
   String phone;
   @HiveField(6)
   String whatsapp;
+  @HiveField(7) 
+  String notes;
 
   Client({
     String? id,
     required this.name,
     this.lastName = '',
-    // 💡 Haz que el campo de identificación sea requerido
     required this.identification,
     this.address,
     required this.phone,
     required this.whatsapp,
-  }) : id = id ?? const Uuid().v4();
+    this.notes = '',
+      }) : id = id ?? const Uuid().v4();
 }

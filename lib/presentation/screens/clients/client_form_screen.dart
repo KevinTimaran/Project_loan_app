@@ -22,6 +22,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   late TextEditingController _addressController;
   late TextEditingController _phoneController;
   late TextEditingController _whatsappController;
+  late TextEditingController _notesController;
 
   final CreateClient _createClient = CreateClient(ClientRepository());
   final UpdateClient _updateClient = UpdateClient(ClientRepository());
@@ -35,6 +36,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _addressController = TextEditingController(text: widget.client?.address ?? '');
     _phoneController = TextEditingController(text: widget.client?.phone ?? '');
     _whatsappController = TextEditingController(text: widget.client?.whatsapp ?? '');
+    _notesController = TextEditingController(text: widget.client?.notes ?? '');
   }
 
   @override
@@ -45,6 +47,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _addressController.dispose();
     _phoneController.dispose();
     _whatsappController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -61,6 +64,7 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         address: _addressController.text,
         phone: _phoneController.text,
         whatsapp: _whatsappController.text,
+        notes: _notesController.text,
       );
 
       try {
@@ -160,6 +164,17 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
                 controller: _whatsappController,
                 decoration: const InputDecoration(labelText: 'WhatsApp'),
                 keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: _notesController,
+                decoration: const InputDecoration(
+                  labelText: 'Notas del Cliente',
+                  border: OutlineInputBorder(),
+                  alignLabelWithHint: true,
+                ),
+                maxLines: 5,
+                keyboardType: TextInputType.multiline,
               ),
               const SizedBox(height: 20),
               ElevatedButton(

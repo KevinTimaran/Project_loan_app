@@ -24,13 +24,14 @@ class ClientAdapter extends TypeAdapter<Client> {
       address: fields[4] as String?,
       phone: fields[5] as String,
       whatsapp: fields[6] as String,
+      notes: fields[7] as String,
     );
   }
 
   @override
   void write(BinaryWriter writer, Client obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(8)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -44,7 +45,9 @@ class ClientAdapter extends TypeAdapter<Client> {
       ..writeByte(5)
       ..write(obj.phone)
       ..writeByte(6)
-      ..write(obj.whatsapp);
+      ..write(obj.whatsapp)
+      ..writeByte(7)
+      ..write(obj.notes);
   }
 
   @override

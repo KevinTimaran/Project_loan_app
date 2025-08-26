@@ -1,10 +1,13 @@
+// lib/presentation/screens/clients/client_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/usecases/client/check_client_active_loans.dart';
 import 'package:loan_app/domain/usecases/client/delete_client.dart';
-import 'package:loan_app/domain/usecases/client/get_clients.dart'; // Para obtener un cliente por ID
+import 'package:loan_app/domain/usecases/client/get_clients.dart';
 import 'package:loan_app/presentation/screens/clients/client_form_screen.dart';
+import 'package:url_launcher/url_launcher.dart'; 
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   final String clientId;
@@ -17,8 +20,7 @@ class ClientDetailScreen extends StatefulWidget {
 
 class _ClientDetailScreenState extends State<ClientDetailScreen> {
   Client? _client;
-  final GetClients _getClients = GetClients(
-      ClientRepository()); // Reutilizamos GetClients para buscar por ID
+  final GetClients _getClients = GetClients(ClientRepository());
   final DeleteClient _deleteClient = DeleteClient(ClientRepository());
   final CheckClientActiveLoans _checkClientActiveLoans =
       CheckClientActiveLoans(ClientRepository());
@@ -30,8 +32,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   }
 
   Future<void> _loadClientDetails() async {
-    // En un escenario real, tendrías un use case para GetClientById
-    // Por simplicidad, obtenemos todos los clientes y filtramos
     final allClients = await _getClients.call();
     setState(() {
       _client = allClients.firstWhere((c) => c.id == widget.clientId);
@@ -108,6 +108,38 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     );
   }
 
+  // 💡 Lógica para llamadas y WhatsApp
+  Future<void> _launchUrl(String url) async {
+    if (await canLaunchUrl(Uri.parse(url))) {
+      await launchUrl(Uri.parse(url));
+    } else {
+      // ignore: use_build_context_synchronously
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No se pudo abrir la aplicación.')),
+      );
+    }
+  }
+
+  void _makePhoneCall() {
+    if (_client?.phone != null && _client!.phone.isNotEmpty) {
+      _launchUrl('tel:${_client!.phone}');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El cliente no tiene un número de teléfono registrado.')),
+      );
+    }
+  }
+
+  void _sendWhatsAppMessage() {
+    if (_client?.whatsapp != null && _client!.whatsapp.isNotEmpty) {
+      _launchUrl('https://wa.me/${_client!.whatsapp}');
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('El cliente no tiene un número de WhatsApp registrado.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_client == null) {
@@ -124,18 +156,16 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
           IconButton(
             icon: const Icon(Icons.edit),
             onPressed: () async {
+              // Navegar a la pantalla de formulario para editar
               await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => ClientFormScreen(client: _client),
                 ),
               );
-              _loadClientDetails(); // Recargar detalles si se editaron
+              // 💡 ¡Este es el paso clave! Recargar los detalles del cliente al volver
+              _loadClientDetails();
             },
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: _confirmDeleteClient,
           ),
         ],
       ),
@@ -149,13 +179,27 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
             _buildInfoRow('Dirección:', _client!.address ?? 'N/A'),
             _buildInfoRow('Teléfono:', _client!.phone),
             _buildInfoRow('WhatsApp:', _client!.whatsapp),
+            _buildInfoRow('Notas:', _client!.notes),
             const Divider(),
-            // Aquí podrías agregar una sección para los préstamos asociados al cliente
-            // RF007 - Visualizar Préstamos por Cliente (Se hará en la sección de Préstamos)
+            // 💡 Botones de llamada y WhatsApp
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: _makePhoneCall,
+                  icon: const Icon(Icons.phone),
+                  label: const Text('Llamar'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: _sendWhatsAppMessage,
+                  icon: const Icon(FontAwesomeIcons.whatsapp),
+                  label: const Text('WhatsApp'),
+                ),
+              ],
+            ),
+            const Divider(),
             ElevatedButton(
               onPressed: () {
-                // Navegar a la pantalla de préstamos del cliente
-                // Navigator.push(context, MaterialPageRoute(builder: (context) => LoanListScreen(clientId: _client!.id)));
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
                       content: Text(

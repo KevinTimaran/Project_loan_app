@@ -108,7 +108,15 @@ class _ClientListScreenState extends State<ClientListScreen> {
                         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
                           title: Text('${client.name} ${client.lastName}'),
-                          subtitle: Text(client.identification),
+                          // 💡 Aquí está el cambio clave: Usamos una columna para mostrar múltiples líneas de texto.
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('ID: ${client.identification}'),
+                              if (client.notes.isNotEmpty)
+                                Text('Notas: ${client.notes}'),
+                            ],
+                          ),
                           onTap: () async {
                             await Navigator.push(
                               context,
