@@ -9,11 +9,19 @@ class ClientRepository implements IClientRepository {
   static const String _loanBoxName = 'loans';
 
   Future<Box<Client>> _getClientBox() async {
-    return await Hive.openBox<Client>(_clientBoxName);
+    // Asegúrate de que la caja esté abierta si aún no lo está.
+    if (!Hive.isBoxOpen(_clientBoxName)) {
+      await Hive.openBox<Client>(_clientBoxName);
+    }
+    return Hive.box<Client>(_clientBoxName);
   }
 
   Future<Box<LoanModel>> _getLoanBox() async {
-    return await Hive.openBox<LoanModel>(_loanBoxName);
+    // Asegúrate de que la caja esté abierta si aún no lo está.
+    if (!Hive.isBoxOpen(_loanBoxName)) {
+      await Hive.openBox<LoanModel>(_loanBoxName);
+    }
+    return Hive.box<LoanModel>(_loanBoxName);
   }
 
   @override
@@ -34,7 +42,6 @@ class ClientRepository implements IClientRepository {
     final lowerCaseQuery = query.toLowerCase();
     return box.values
         .where((client) =>
-            // 💡 Esta línea busca el nombre y apellido en el repositorio
             client.name.toLowerCase().contains(lowerCaseQuery) ||
             client.lastName.toLowerCase().contains(lowerCaseQuery))
         .toList();
@@ -43,6 +50,8 @@ class ClientRepository implements IClientRepository {
   @override
   Future<void> updateClient(Client client) async {
     final box = await _getClientBox();
+    // 💡 El método `put` sobreescribe el objeto con la misma clave.
+    // 💡 Usa el `id` del cliente para identificarlo.
     await box.put(client.id, client);
   }
 

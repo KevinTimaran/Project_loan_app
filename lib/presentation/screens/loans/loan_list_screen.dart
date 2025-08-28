@@ -11,6 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
+import 'package:loan_app/presentation/screens/clients/client_list_screen.dart'; // 💡 Importar la pantalla de clientes
 
 class LoanListScreen extends StatelessWidget {
   const LoanListScreen({super.key});
@@ -74,6 +75,18 @@ class LoanListScreen extends StatelessWidget {
         centerTitle: true,
         elevation: 0,
         actions: [
+          // 💡 Botón para navegar a la pantalla de clientes
+          IconButton(
+            icon: const Icon(Icons.people, color: Colors.white),
+            tooltip: 'Gestión de Clientes',
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const ClientListScreen()),
+              );
+              // 💡 Al regresar, recargamos los préstamos para obtener la info actualizada
+              Provider.of<LoanProvider>(context, listen: false).loadLoans();
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.delete_sweep, color: Colors.white),
             tooltip: 'Borrar Todos los Préstamos (¡Solo pruebas!)',
@@ -167,10 +180,17 @@ class LoanListScreen extends StatelessWidget {
                 future: ClientRepository().getClientById(loan.clientId),
                 builder: (context, snapshot) {
                   String clientName = 'Cargando...';
+                  // 💡 Variables para los números de teléfono
+                  String? clientPhone;
+                  String? clientWhatsapp;
+
                   if (snapshot.connectionState == ConnectionState.done) {
                     if (snapshot.hasData && snapshot.data != null) {
                       final client = snapshot.data!;
                       clientName = '${client.name} ${client.lastName}';
+                      // 💡 Asignar los números de teléfono del cliente
+                      clientPhone = client.phone;
+                      clientWhatsapp = client.whatsapp;
                     } else {
                       clientName = 'Cliente no encontrado';
                     }
@@ -183,7 +203,6 @@ class LoanListScreen extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8.0),
                     ),
-                    // 💡 Usar un Stack para superponer la ID
                     child: Stack(
                       children: [
                         ListTile(
@@ -235,10 +254,11 @@ class LoanListScreen extends StatelessWidget {
                                 padding: const EdgeInsets.only(top: 8.0),
                                 child: Row(
                                   children: [
-                                    if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty)
+                                    // 💡 Usar el número del cliente
+                                    if (clientPhone != null && clientPhone.isNotEmpty)
                                       Expanded(
                                         child: ElevatedButton.icon(
-                                          onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
+                                          onPressed: () => _makePhoneCall(context, clientPhone!),
                                           icon: const Icon(Icons.phone, size: 18),
                                           label: const Text('Llamar'),
                                           style: ElevatedButton.styleFrom(
@@ -246,12 +266,13 @@ class LoanListScreen extends StatelessWidget {
                                           ),
                                         ),
                                       ),
-                                    if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty && loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                    if (clientPhone != null && clientPhone.isNotEmpty && clientWhatsapp != null && clientWhatsapp.isNotEmpty)
                                       const SizedBox(width: 8),
-                                    if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                    // 💡 Usar el número de WhatsApp del cliente
+                                    if (clientWhatsapp != null && clientWhatsapp.isNotEmpty)
                                       Expanded(
                                         child: ElevatedButton.icon(
-                                          onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
+                                          onPressed: () => _launchWhatsApp(context, clientWhatsapp!),
                                           icon: const Icon(FontAwesomeIcons.whatsapp, size: 18),
                                           label: const Text('WhatsApp'),
                                           style: ElevatedButton.styleFrom(
@@ -265,7 +286,6 @@ class LoanListScreen extends StatelessWidget {
                             ],
                           ),
                         ),
-                        // 💡 Agregamos la ID en la esquina superior derecha
                         Positioned(
                           top: 8.0,
                           right: 8.0,
@@ -295,10 +315,12 @@ class LoanListScreen extends StatelessWidget {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.of(context).push(
+        onPressed: () async {
+          await Navigator.of(context).push(
             MaterialPageRoute(builder: (context) => const AddLoanScreen()),
           );
+          // Recargar la lista de préstamos al regresar de la pantalla de agregar préstamo.
+          Provider.of<LoanProvider>(context, listen: false).loadLoans();
         },
         child: const Icon(Icons.add),
       ),
