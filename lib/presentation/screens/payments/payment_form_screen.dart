@@ -7,7 +7,8 @@ import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/data/repositories/payment_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/entities/payment.dart';
-import 'package:uuid/uuid.dart'; // 💡 Importa la librería Uuid
+import 'package:uuid/uuid.dart';
+import 'package:intl/intl.dart'; // 💡 Importa la librería intl
 
 class PaymentFormScreen extends StatefulWidget {
   const PaymentFormScreen({super.key});
@@ -26,7 +27,9 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   List<LoanModel> _loans = [];
   Client? _selectedClient;
   LoanModel? _selectedLoan;
-  final TextEditingController _amountController = TextEditingController();
+  
+  // 💡 Usa el controlador personalizado para el monto
+  final NumberFormatterController _amountController = NumberFormatterController();
 
   @override
   void initState() {
@@ -47,7 +50,6 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     });
   }
 
-  // 💡 El clientId ahora es un String, como en Client
   Future<void> _loadLoansForClient(String clientId) async {
     final loans = await _loanRepository.getLoansByClientId(clientId);
     setState(() {
@@ -58,11 +60,14 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
 
   Future<void> _savePayment() async {
     if (_formKey.currentState!.validate()) {
+      // 💡 CORRECCIÓN: Limpiar el texto antes de convertirlo a double
+      final String cleanAmountText = _amountController.text.replaceAll('.', '');
+      final double amount = double.tryParse(cleanAmountText) ?? 0.0;
+      
       final newPayment = Payment(
-        // 💡 Genera un nuevo id único
         id: const Uuid().v4(),
-        loanId: _selectedLoan!.id, // 💡 Ahora _selectedLoan.id es de tipo String
-        amount: double.parse(_amountController.text),
+        loanId: _selectedLoan!.id,
+        amount: amount,
         date: DateTime.now(),
       );
 
@@ -125,7 +130,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                       items: _loans.map((loan) {
                         return DropdownMenuItem(
                           value: loan,
-                          child: Text('Préstamo #${loan.id.substring(0, 4)} - Monto: \$${loan.amount}'), // 💡 Mostrar solo los 4 primeros caracteres del ID
+                          child: Text('Préstamo #${loan.id.substring(0, 4)} - Monto: \$${loan.amount}'),
                         );
                       }).toList(),
                       onChanged: _selectedClient == null
@@ -156,7 +161,9 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                         if (value == null || value.isEmpty) {
                           return 'Por favor, ingresa el monto.';
                         }
-                        if (double.tryParse(value) == null) {
+                        // 💡 Validación mejorada para el formato de número
+                        final cleanValue = value.replaceAll('.', '');
+                        if (double.tryParse(cleanValue) == null) {
                           return 'Por favor, ingresa un número válido.';
                         }
                         return null;
@@ -173,5 +180,32 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
               ),
             ),
     );
+  }
+}
+
+// 💡 NUEVA CLASE: Controlador de texto personalizado para formatear números
+class NumberFormatterController extends TextEditingController {
+  // Configura el formato de número local para Colombia
+  final NumberFormat _formatter = NumberFormat.decimalPattern('es_CO');
+
+  @override
+  set value(TextEditingValue newValue) {
+    String cleanText = newValue.text.replaceAll('.', '');
+    if (cleanText.isEmpty) {
+      super.value = newValue.copyWith(text: '');
+      return;
+    }
+
+    try {
+      double value = double.parse(cleanText);
+      String formattedText = _formatter.format(value);
+      super.value = newValue.copyWith(
+        text: formattedText,
+        selection: TextSelection.collapsed(offset: formattedText.length),
+      );
+    } catch (e) {
+      // Maneja errores de formato
+      super.value = newValue;
+    }
   }
 }
