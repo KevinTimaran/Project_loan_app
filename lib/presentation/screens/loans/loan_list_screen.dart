@@ -11,7 +11,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
-import 'package:loan_app/presentation/screens/clients/client_list_screen.dart'; // 💡 Importar la pantalla de clientes
+import 'package:loan_app/presentation/screens/clients/client_list_screen.dart'; 
 
 class LoanListScreen extends StatelessWidget {
   const LoanListScreen({super.key});
