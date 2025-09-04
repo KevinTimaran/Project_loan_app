@@ -6,6 +6,8 @@ import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
+// Elimina esta importación si no la usas.
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -71,18 +73,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       await Hive.deleteBoxFromDisk('clients');
       await Hive.deleteBoxFromDisk('loans');
       
-      print('DEBUG: Borrando caja de clientes...');
-      final clientBoxExists = await Hive.boxExists('clients');
-      print('DEBUG: ¿La caja de clientes existe después de borrar? $clientBoxExists');
-      
-      print('DEBUG: Borrando caja de préstamos...');
-      final loanBoxExists = await Hive.boxExists('loans');
-      print('DEBUG: ¿La caja de préstamos existe después de borrar? $loanBoxExists');
-      
+      // ⚠️ Asegúrate de que el widget sigue montado antes de mostrar el SnackBar.
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bases de datos de clientes y préstamos borradas correctamente.')),
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al borrar las bases de datos: $e')),
       );
@@ -91,9 +88,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final Color primaryBlue = Theme.of(context).appBarTheme.backgroundColor!;
-    final Color mainGreen = Theme.of(context).elevatedButtonTheme.style?.backgroundColor?.resolve({}) ?? const Color(0xFF43A047);
-    final Color textColor = Theme.of(context).textTheme.bodyLarge!.color!;
+    // ⚠️ Se obtienen los colores de forma más segura
+    final Color primaryBlue = Theme.of(context).appBarTheme.backgroundColor ?? Colors.blue;
+    final Color mainGreen = const Color(0xFF43A047);
+    final Color textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
     final Color alertRed = const Color(0xFFE53935);
     final Color orangeModule = Colors.orange.shade700;
     final Color purpleModule = Colors.purple.shade700;
@@ -196,7 +194,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     child: ListTile(
                       title: Text('${client.name} ${client.lastName}'),
-                      // 💡 Aquí se muestra el ID del cliente
                       subtitle: Text('ID: ${client.identification}'),
                       onTap: () {
                         Navigator.push(
@@ -279,9 +276,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     icon: Icons.payment,
                     title: 'Registro de Pagos',
                     onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Módulo de Pagos en desarrollo.')),
-                      );
+                      // 💡 Se cambia el SnackBar por la navegación a la ruta de pagos
+                      Navigator.of(context).pushNamed('/addPayment');
                     },
                     iconColor: purpleModule,
                   ),
@@ -312,7 +308,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     required VoidCallback onTap,
     required Color iconColor,
   }) {
-    final Color textColor = Theme.of(context).textTheme.bodyLarge!.color!;
+    // ⚠️ Se obtienen los colores de forma más segura
+    final Color textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
     return Card(
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),

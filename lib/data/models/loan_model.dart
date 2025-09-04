@@ -50,7 +50,7 @@ class LoanModel extends HiveObject {
   LoanModel({
     String? id,
     required this.clientId,
-    required this.clientName, // NUEVO: parámetro requerido
+    required this.clientName,
     required this.amount,
     required this.interestRate,
     required this.termValue,
@@ -62,15 +62,9 @@ class LoanModel extends HiveObject {
     this.phoneNumber,
     this.termUnit = 'Meses',
   }) {
-    this.id = id ?? _generateFiveDigitId();
+    // 💡 Corrección: Usar Uuid().v4() para garantizar un ID único y evitar colisiones.
+    this.id = id ?? const Uuid().v4();
     debugPrint('DEBUG CONSTRUCTOR: LoanModel creado con ID: ${this.id}');
-  }
-
-  String _generateFiveDigitId() {
-    final random = Random();
-    final int randomNumber = random.nextInt(90000) + 10000;
-    debugPrint('DEBUG GENERADOR: Generando nuevo ID de 5 dígitos: $randomNumber');
-    return randomNumber.toString();
   }
 
   double get _periodInterestRate {
@@ -131,7 +125,7 @@ class LoanModel extends HiveObject {
     return {
       'id': id,
       'clientId': clientId,
-      'clientName': clientName, // NUEVO: incluir nombre del cliente
+      'clientName': clientName,
       'amount': amount,
       'interestRate': interestRate,
       'termValue': termValue,
@@ -151,5 +145,4 @@ class LoanModel extends HiveObject {
   String toString() {
     return 'LoanModel(id: $id, clientId: $clientId, clientName: $clientName, amount: $amount, interestRate: $interestRate, termValue: $termValue, termUnit: $termUnit, startDate: $startDate, dueDate: $dueDate, status: $status, frequency: $paymentFrequency, whatsapp: $whatsappNumber, phone: $phoneNumber)';
   }
-  
 }

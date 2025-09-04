@@ -30,7 +30,6 @@ class _ClientListScreenState extends State<ClientListScreen> {
     _loadClients();
     _searchController.addListener(_onSearchChanged);
 
-    // Si se recibió un término de búsqueda desde la pantalla anterior, lo usa para la búsqueda
     if (widget.searchTerm != null && widget.searchTerm!.isNotEmpty) {
       _searchController.text = widget.searchTerm!;
       _onSearchChanged();
@@ -107,14 +106,18 @@ class _ClientListScreenState extends State<ClientListScreen> {
                       return Card(
                         margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         child: ListTile(
+                          // 💡 Se añade el CircleAvatar para la inicial del nombre.
+                          leading: CircleAvatar(
+                            child: Text(client.name.isNotEmpty ? client.name[0] : ''),
+                          ),
                           title: Text('${client.name} ${client.lastName}'),
-                          // 💡 Aquí está el cambio clave: Usamos una columna para mostrar múltiples líneas de texto.
+                          // 💡 Se añade una columna con el subtítulo.
                           subtitle: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('ID: ${client.identification}'),
                               if (client.notes.isNotEmpty)
-                                Text('Notas: ${client.notes}'),
+                                Text('Notas: ${client.notes}', maxLines: 1, overflow: TextOverflow.ellipsis),
                             ],
                           ),
                           onTap: () async {
