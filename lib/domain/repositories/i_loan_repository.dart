@@ -25,4 +25,7 @@ abstract class LoanRepository {
 
   /// Marca un préstamo como pagado, actualizando su estado.
   Future<void> markLoanAsPaid(String id);
+
+  // AÑADIDO: Método para compatibilidad con daily_payments_screen.dart
+  Future<LoanModel?> getLoanById(String id); 
 }

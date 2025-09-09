@@ -1,7 +1,11 @@
 // lib/presentation/screens/payments/daily_payments_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:loan_app/data/models/loan_model.dart';
+import 'package:loan_app/data/repositories/client_repository.dart';
+import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/data/repositories/payment_repository.dart';
+import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/entities/payment.dart';
 
 class DailyPaymentsScreen extends StatefulWidget {
@@ -13,9 +17,17 @@ class DailyPaymentsScreen extends StatefulWidget {
 
 class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
   final PaymentRepository _paymentRepository = PaymentRepository();
+  final ClientRepository _clientRepository = ClientRepository();
+  final LoanRepository _loanRepository = LoanRepository();
+
   List<Payment> _dailyPayments = [];
+  Map<String, Client?> _clientsMap = {};
+  Map<String, LoanModel?> _loansMap = {};
+
   bool _isLoading = true;
   DateTime _selectedDate = DateTime.now();
+
+  double _totalAmountPaid = 0.0;
 
   @override
   void initState() {
@@ -26,11 +38,27 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
   Future<void> _loadDailyPayments() async {
     setState(() {
       _isLoading = true;
+      _dailyPayments = [];
+      _clientsMap = {};
+      _loansMap = {};
+      _totalAmountPaid = 0.0;
     });
 
     final payments = await _paymentRepository.getPaymentsByDate(_selectedDate);
+
+    // Mapeamos los futuros para cargar clientes y préstamos en paralelo
+    final futures = payments.map((payment) async {
+      final client = await _clientRepository.getClientById(payment.loanId);
+      final loan = await _loanRepository.getLoanById(payment.loanId);
+      _clientsMap[payment.loanId] = client;
+      _loansMap[payment.loanId] = loan;
+    });
+
+    await Future.wait(futures);
+
     setState(() {
       _dailyPayments = payments;
+      _totalAmountPaid = payments.fold(0.0, (sum, item) => sum + item.amount);
       _isLoading = false;
     });
   }
@@ -50,7 +78,6 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
     }
   }
 
-  // AHORA DEVUELVE EL VALOR BOOL
   Future<bool?> _confirmAndDeletePayment(String paymentId) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -82,7 +109,6 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
         );
       }
     }
-    // ESTA LÍNEA FALTABA: Retorna el resultado del diálogo.
     return confirmed;
   }
 
@@ -98,21 +124,47 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: Column(
               children: [
-                const Text('Seleccionar Fecha:', style: TextStyle(fontSize: 16)),
-                GestureDetector(
-                  onTap: () => _selectDate(context),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.calendar_today, color: Colors.blue),
-                      const SizedBox(width: 8),
-                      Text(
-                        DateFormat('dd/MM/yyyy').format(_selectedDate),
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Fecha:', style: TextStyle(fontSize: 16)),
+                    GestureDetector(
+                      onTap: () => _selectDate(context),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.calendar_today, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          Text(
+                            DateFormat('dd/MM/yyyy').format(_selectedDate),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Card(
+                  elevation: 2,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        _buildSummaryItem(
+                          'Total Recaudado',
+                          currencyFormatter.format(_totalAmountPaid),
+                          Icons.attach_money,
+                        ),
+                        _buildSummaryItem(
+                          'Pagos',
+                          _dailyPayments.length.toString(),
+                          Icons.list_alt,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -127,6 +179,11 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                         itemCount: _dailyPayments.length,
                         itemBuilder: (context, index) {
                           final payment = _dailyPayments[index];
+                          final loan = _loansMap[payment.loanId];
+                          final client = _clientsMap[payment.loanId];
+                          
+                          final isFullPayment = loan != null && payment.amount == loan.calculatedPaymentAmount;
+                          final leadingIcon = isFullPayment ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.circle_outlined, color: Colors.orange);
                           return Dismissible(
                             key: Key(payment.id),
                             direction: DismissDirection.endToStart,
@@ -137,16 +194,23 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                               child: const Icon(Icons.delete, color: Colors.white),
                             ),
                             confirmDismiss: (direction) async {
-                              // Esto funciona ahora porque la función _confirmAndDeletePayment devuelve un valor
                               return await _confirmAndDeletePayment(payment.id);
                             },
-                            child: ListTile(
-                              leading: const Icon(Icons.money),
-                              title: Text(
-                                'Monto: ${currencyFormatter.format(payment.amount)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                            child: Card(
+                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                              child: ListTile(
+                                leading: leadingIcon,
+                                title: Text(
+                                  'Monto: ${currencyFormatter.format(payment.amount)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                subtitle: Text(
+                                  'Cliente: ${client?.name ?? 'Desconocido'} - Préstamo: #${loan?.id.substring(0, 4) ?? 'Desconocido'}',
+                                ),
+                                trailing: Text(
+                                  DateFormat('hh:mm a').format(payment.date),
+                                ),
                               ),
-                              subtitle: Text('ID Préstamo: ${payment.loanId.substring(0, 4)}...'),
                             ),
                           );
                         },
@@ -154,6 +218,21 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildSummaryItem(String title, String value, IconData icon) {
+    return Column(
+      children: [
+        Icon(icon, size: 28, color: Theme.of(context).primaryColor),
+        const SizedBox(height: 4),
+        Text(title, style: Theme.of(context).textTheme.bodyLarge),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+        ),
+      ],
     );
   }
 }

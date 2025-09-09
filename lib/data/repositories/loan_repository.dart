@@ -1,5 +1,4 @@
 // lib/data/repositories/loan_repository.dart
-
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 
@@ -24,5 +23,10 @@ class LoanRepository {
 
   Future<List<LoanModel>> getActiveLoans() async {
     return _loanBox.values.toList();
+  }
+  
+  // AÑADIDO: Método para obtener un préstamo por su ID.
+  Future<LoanModel?> getLoanById(String id) async {
+    return _loanBox.get(id);
   }
 }

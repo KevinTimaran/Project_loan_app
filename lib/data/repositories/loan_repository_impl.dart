@@ -1,7 +1,8 @@
 // lib/data/repositories/loan_repository_impl.dart
 import 'package:hive/hive.dart';
-import 'package:loan_app/data/models/loan_model.dart'; // Importa el modelo de préstamo
+import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/domain/repositories/i_loan_repository.dart';
+
 /// Implementación concreta del [LoanRepository] utilizando Hive para la persistencia de datos.
 class LoanRepositoryImpl implements LoanRepository {
   // Define el nombre de la "caja" (box) de Hive donde se almacenarán los préstamos.
@@ -21,7 +22,6 @@ class LoanRepositoryImpl implements LoanRepository {
   Future<void> addLoan(LoanModel loan) async {
     final box = await _openBox();
     // Añade el préstamo a la caja de Hive.
-    // Hive usa el ID del modelo como clave si el modelo extiende HiveObject.
     await box.put(loan.id, loan);
   }
 
@@ -30,6 +30,12 @@ class LoanRepositoryImpl implements LoanRepository {
     final box = await _openBox();
     // Obtiene un préstamo por su ID.
     return box.get(id);
+  }
+
+  // AÑADIDO: Método para compatibilidad con daily_payments_screen.dart
+  @override
+  Future<LoanModel?> getLoanById(String id) async {
+    return getLoan(id);
   }
 
   @override
