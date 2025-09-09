@@ -27,6 +27,11 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   Client? _selectedClient;
   LoanModel? _selectedLoan;
   final TextEditingController _amountController = TextEditingController();
+  
+  // AÑADIDO: Variables para la fecha
+  final TextEditingController _dateController = TextEditingController();
+  DateTime _selectedDate = DateTime.now();
+
   bool _isLoading = false;
 
   double _expectedPaymentAmount = 0.0;
@@ -37,6 +42,9 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadClients();
     });
+    
+    // AÑADIDO: Inicializa el controlador de fecha con la fecha actual
+    _dateController.text = DateFormat('dd/MM/yyyy').format(_selectedDate);
 
     // Añadimos el listener para el formato del monto
     _amountController.addListener(() {
@@ -70,6 +78,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   @override
   void dispose() {
     _amountController.dispose();
+    _dateController.dispose(); // AÑADIDO: Liberamos el controlador de fecha
     super.dispose();
   }
 
@@ -140,7 +149,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
           id: const Uuid().v4(),
           loanId: _selectedLoan!.id,
           amount: amount,
-          date: DateTime.now(),
+          date: _selectedDate, // AÑADIDO: Usa la fecha seleccionada
         );
 
         await _paymentRepository.addPayment(newPayment);
@@ -173,7 +182,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       locale: 'es_CO',
       symbol: '\$',
       decimalDigits: 0,
-    ).format(_expectedPaymentAmount);
+    ).format(loan.calculatedPaymentAmount);
     
     return 'Préstamo #$shortId - Cuota: $formattedExpectedPayment';
   }
@@ -270,6 +279,36 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                                 return 'Por favor, selecciona un préstamo.';
                               }
                               return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        
+                        // AÑADIDO: Campo para la fecha del pago
+                        Container(
+                          constraints: BoxConstraints(maxWidth: availableWidth),
+                          child: TextFormField(
+                            controller: _dateController,
+                            readOnly: true,
+                            decoration: const InputDecoration(
+                              labelText: 'Fecha del Pago',
+                              border: OutlineInputBorder(),
+                              suffixIcon: Icon(Icons.calendar_today),
+                            ),
+                            onTap: () async {
+                              final selectedDate = await showDatePicker(
+                                context: context,
+                                initialDate: _selectedDate,
+                                firstDate: DateTime(2020),
+                                lastDate: DateTime(2101),
+                              );
+
+                              if (selectedDate != null) {
+                                setState(() {
+                                  _selectedDate = selectedDate;
+                                  _dateController.text = DateFormat('dd/MM/yyyy').format(_selectedDate);
+                                });
+                              }
                             },
                           ),
                         ),
