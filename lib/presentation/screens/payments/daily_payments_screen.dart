@@ -79,40 +79,6 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
     }
   }
 
-  Future<bool?> _confirmAndDeletePayment(String paymentId) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Confirmar Eliminación'),
-          content: const Text('¿Estás seguro de que deseas eliminar este pago?'),
-          actions: <Widget>[
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Eliminar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed == true) {
-      await _paymentRepository.deletePayment(paymentId);
-      _loadDailyPayments();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Pago eliminado exitosamente.')),
-        );
-      }
-    }
-    return confirmed;
-  }
-
   @override
   Widget build(BuildContext context) {
     final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
@@ -186,32 +152,19 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                           final isFullPayment = loan != null && payment.amount == loan.calculatedPaymentAmount;
                           final leadingIcon = isFullPayment ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.circle_outlined, color: Colors.orange);
 
-                          return Dismissible(
-                            key: Key(payment.id),
-                            direction: DismissDirection.endToStart,
-                            background: Container(
-                              color: Colors.red,
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20),
-                              child: const Icon(Icons.delete, color: Colors.white),
-                            ),
-                            confirmDismiss: (direction) async {
-                              return await _confirmAndDeletePayment(payment.id);
-                            },
-                            child: Card(
-                              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                              child: ListTile(
-                                leading: leadingIcon,
-                                title: Text(
-                                  'Monto: ${currencyFormatter.format(payment.amount)}',
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                subtitle: Text(
-                                  'Cliente: ${client?.name ?? 'Desconocido'} - Préstamo: #${loan?.loanNumber ?? 'Desconocido'}',
-                                ),
-                                trailing: Text(
-                                  DateFormat('hh:mm a').format(payment.date),
-                                ),
+                          return Card(
+                            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                            child: ListTile(
+                              leading: leadingIcon,
+                              title: Text(
+                                'Monto: ${currencyFormatter.format(payment.amount)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                              subtitle: Text(
+                                'Cliente: ${client?.name ?? 'Desconocido'} - Préstamo: #${loan?.loanNumber ?? 'Desconocido'}',
+                              ),
+                              trailing: Text(
+                                DateFormat('hh:mm a').format(payment.date),
                               ),
                             ),
                           );
