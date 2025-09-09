@@ -6,8 +6,8 @@ import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
-// Elimina esta importación si no la usas.
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:loan_app/presentation/screens/payments/daily_payments_screen.dart'; // <--- Importación AÑADIDA
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -73,7 +73,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       await Hive.deleteBoxFromDisk('clients');
       await Hive.deleteBoxFromDisk('loans');
       
-      // ⚠️ Asegúrate de que el widget sigue montado antes de mostrar el SnackBar.
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Bases de datos de clientes y préstamos borradas correctamente.')),
@@ -88,7 +87,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    // ⚠️ Se obtienen los colores de forma más segura
     final Color primaryBlue = Theme.of(context).appBarTheme.backgroundColor ?? Colors.blue;
     final Color mainGreen = const Color(0xFF43A047);
     final Color textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
@@ -276,10 +274,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     icon: Icons.payment,
                     title: 'Registro de Pagos',
                     onTap: () {
-                      // 💡 Se cambia el SnackBar por la navegación a la ruta de pagos
                       Navigator.of(context).pushNamed('/addPayment');
                     },
                     iconColor: purpleModule,
+                  ),
+                  _buildFeatureCard(
+                    context,
+                    icon: Icons.calendar_today,
+                    title: 'Ver Pagos del Día',
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (context) => const DailyPaymentsScreen()),
+                      );
+                    },
+                    iconColor: Colors.blue.shade700,
                   ),
                   _buildFeatureCard(
                     context,
@@ -308,7 +316,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     required VoidCallback onTap,
     required Color iconColor,
   }) {
-    // ⚠️ Se obtienen los colores de forma más segura
     final Color textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
     return Card(
       elevation: 4,

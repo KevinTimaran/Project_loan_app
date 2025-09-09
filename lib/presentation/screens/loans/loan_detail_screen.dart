@@ -1,7 +1,7 @@
 // lib/presentation/screens/loans/loan_detail_screen.dart
 import 'package:flutter/material.dart';
-import 'package:loan_app/data/models/loan_model.dart'; // <--- Esta es la línea corregida
-import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart'; 
+import 'package:loan_app/data/models/loan_model.dart';
+import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -78,7 +78,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Detalles del Préstamo'),
+        title: Text('Detalles del Préstamo #${widget.loan.id.substring(0, 4)}'),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -163,40 +163,94 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                 ? const Center(child: CircularProgressIndicator())
                 : _payments.isEmpty
                     ? const Center(child: Text('No hay pagos registrados.'))
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _payments.length,
-                        itemBuilder: (context, index) {
-                          final payment = _payments[index];
-                          return Card(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            child: ListTile(
-                              leading: const Icon(Icons.receipt),
-                              title: Text(
-                                'Pago de: ${currencyFormatter.format(payment.amount)}',
-                                style: const TextStyle(fontWeight: FontWeight.bold),
+                    : Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8.0),
+                          child: Text(
+                            'Total de pagos: ${currencyFormatter.format(totalAmountPaid)}',
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _payments.length,
+                          itemBuilder: (context, index) {
+                            final payment = _payments[index];
+                            return Dismissible(
+                              key: Key(payment.id),
+                              background: Container(
+                                color: Colors.red,
+                                alignment: Alignment.centerRight,
+                                padding: const EdgeInsets.only(right: 20.0),
+                                child: const Icon(Icons.delete, color: Colors.white),
                               ),
-                              subtitle: Text(
-                                'Fecha: ${DateFormat('dd/MM/yyyy').format(payment.date)}',
+                              direction: DismissDirection.endToStart,
+                              confirmDismiss: (direction) async {
+                                bool? confirmDelete = await showDialog<bool>(
+                                  context: context,
+                                  builder: (BuildContext context) {
+                                    return AlertDialog(
+                                      title: const Text('Confirmar Eliminación'),
+                                      content: const Text(
+                                          '¿Estás seguro de que deseas eliminar este pago? Esta acción es irreversible.'),
+                                      actions: <Widget>[
+                                        TextButton(
+                                          onPressed: () => Navigator.of(context).pop(false),
+                                          child: const Text('Cancelar'),
+                                        ),
+                                        ElevatedButton(
+                                          onPressed: () => Navigator.of(context).pop(true),
+                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                          child: const Text('Eliminar'),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                );
+
+                                if (confirmDelete == true) {
+                                  await _paymentRepository.deletePayment(payment.id);
+                                  _loadPayments(); // Recargar pagos
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Pago eliminado exitosamente.')),
+                                    );
+                                  }
+                                }
+                                return confirmDelete;
+                              },
+                              child: Card(
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                child: ListTile(
+                                  leading: const Icon(Icons.receipt),
+                                  title: Text(
+                                    'Pago de: ${currencyFormatter.format(payment.amount)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  subtitle: Text(
+                                    'Fecha: ${DateFormat('dd/MM/yyyy').format(payment.date)}',
+                                  ),
+                                ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
 
             const SizedBox(height: 20),
 
-            // Botón para registrar un nuevo pago
             ElevatedButton.icon(
               onPressed: () async {
                 await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => const PaymentFormScreen(),
+                    builder: (context) => PaymentFormScreen(loan: widget.loan),
                   ),
                 );
-                _loadPayments(); // Recargar pagos al regresar de la pantalla
+                _loadPayments();
               },
               icon: const Icon(Icons.add_task),
               label: const Text('Registrar Pago'),
