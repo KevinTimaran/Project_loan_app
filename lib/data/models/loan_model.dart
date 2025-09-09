@@ -62,7 +62,6 @@ class LoanModel extends HiveObject {
     this.phoneNumber,
     this.termUnit = 'Meses',
   }) {
-    // 💡 Corrección: Usar Uuid().v4() para garantizar un ID único y evitar colisiones.
     this.id = id ?? const Uuid().v4();
     debugPrint('DEBUG CONSTRUCTOR: LoanModel creado con ID: ${this.id}');
   }
@@ -108,6 +107,11 @@ class LoanModel extends HiveObject {
 
   double get monthlyPayment {
     return calculatedPaymentAmount;
+  }
+
+  // Se añade esta propiedad para resolver el error
+  double get totalAmountToPay {
+    return calculatedPaymentAmount * _numberOfPayments;
   }
 
   double get totalAmountDue {

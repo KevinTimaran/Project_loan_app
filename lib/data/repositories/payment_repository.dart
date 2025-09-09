@@ -8,4 +8,11 @@ class PaymentRepository {
   Future<void> addPayment(Payment payment) async {
     await _paymentBox.add(payment);
   }
+
+  // Se añadió la función para obtener pagos por ID de préstamo
+  Future<List<Payment>> getPaymentsByLoanId(String loanId) async {
+    return _paymentBox.values
+        .where((payment) => payment.loanId == loanId)
+        .toList();
+  }
 }

@@ -11,10 +11,41 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
-import 'package:loan_app/presentation/screens/clients/client_list_screen.dart'; // 💡 Importar la pantalla de clientes
+import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 
-class LoanListScreen extends StatelessWidget {
+class LoanListScreen extends StatefulWidget {
   const LoanListScreen({super.key});
+
+  @override
+  State<LoanListScreen> createState() => _LoanListScreenState();
+}
+
+class _LoanListScreenState extends State<LoanListScreen> {
+  Map<String, Client> _clientCache = {};
+  bool _isLoadingClients = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadClients();
+  }
+
+  Future<void> _loadClients() async {
+    try {
+      final clientRepository = ClientRepository();
+      final clients = await clientRepository.getAllClients();
+      
+      setState(() {
+        _clientCache = {for (var client in clients) client.id: client};
+        _isLoadingClients = false;
+      });
+    } catch (e) {
+      print('Error loading clients: $e');
+      setState(() {
+        _isLoadingClients = false;
+      });
+    }
+  }
 
   Future<void> _clearAllLoans(BuildContext context) async {
     await Hive.deleteBoxFromDisk('loans');
@@ -75,7 +106,6 @@ class LoanListScreen extends StatelessWidget {
         centerTitle: true,
         elevation: 0,
         actions: [
-          // 💡 Botón para navegar a la pantalla de clientes
           IconButton(
             icon: const Icon(Icons.people, color: Colors.white),
             tooltip: 'Gestión de Clientes',
@@ -83,7 +113,8 @@ class LoanListScreen extends StatelessWidget {
               await Navigator.of(context).push(
                 MaterialPageRoute(builder: (context) => const ClientListScreen()),
               );
-              // 💡 Al regresar, recargamos los préstamos para obtener la info actualizada
+              // Recargar clientes al regresar
+              await _loadClients();
               Provider.of<LoanProvider>(context, listen: false).loadLoans();
             },
           ),
@@ -121,7 +152,7 @@ class LoanListScreen extends StatelessWidget {
       ),
       body: Consumer<LoanProvider>(
         builder: (context, loanProvider, child) {
-          if (loanProvider.isLoading) {
+          if (loanProvider.isLoading || _isLoadingClients) {
             return Center(
               child: CircularProgressIndicator(color: primaryBlue),
             );
@@ -176,139 +207,122 @@ class LoanListScreen extends StatelessWidget {
                   break;
               }
 
-              return FutureBuilder<Client?>(
-                future: ClientRepository().getClientById(loan.clientId),
-                builder: (context, snapshot) {
-                  String clientName = 'Cargando...';
-                  // 💡 Variables para los números de teléfono
-                  String? clientPhone;
-                  String? clientWhatsapp;
+              // Obtener información del cliente desde el cache
+              final client = _clientCache[loan.clientId];
+              String clientName = client != null ? 
+                '${client.name} ${client.lastName}' : 'Cliente no encontrado';
+              String? clientPhone = client?.phone;
+              String? clientWhatsapp = client?.whatsapp;
 
-                  if (snapshot.connectionState == ConnectionState.done) {
-                    if (snapshot.hasData && snapshot.data != null) {
-                      final client = snapshot.data!;
-                      clientName = '${client.name} ${client.lastName}';
-                      // 💡 Asignar los números de teléfono del cliente
-                      clientPhone = client.phone;
-                      clientWhatsapp = client.whatsapp;
-                    } else {
-                      clientName = 'Cliente no encontrado';
-                    }
-                  }
-
-                  return Card(
-                    margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    color: rowBackgroundColor,
-                    elevation: 1,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8.0),
-                    ),
-                    child: Stack(
-                      children: [
-                        ListTile(
-                          leading: Icon(Icons.account_balance_wallet, color: iconColor),
-                          title: Text(
-                            'Cliente: $clientName',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor),
+              return Card(
+                margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                color: rowBackgroundColor,
+                elevation: 1,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8.0),
+                ),
+                child: Stack(
+                  children: [
+                    ListTile(
+                      leading: Icon(Icons.account_balance_wallet, color: iconColor),
+                      title: Text(
+                        'Cliente: $clientName',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: textColor),
+                      ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Monto: ${currencyFormatter.format(loan.amount)}',
+                            style: TextStyle(fontSize: 14, color: textColor),
                           ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Monto: ${currencyFormatter.format(loan.amount)}',
-                                style: TextStyle(fontSize: 14, color: textColor),
-                              ),
-                              Text(
-                                'Tasa: ${(loan.interestRate * 100).toStringAsFixed(2)}%',
-                                style: TextStyle(fontSize: 14, color: textColor),
-                              ),
-                              Text(
-                                'Plazo: ${loan.termValue} ${loan.termUnit}',
-                                style: TextStyle(fontSize: 14, color: textColor),
-                              ),
-                              Text(
-                                'Frecuencia: ${loan.paymentFrequency}',
-                                style: TextStyle(fontSize: 14, color: textColor),
-                              ),
-                              Text(
-                                'Estado: ${loan.status.toUpperCase()}',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: loan.isFullyPaid
-                                      ? mainGreen
-                                      : (loan.status == 'atrasado'
-                                          ? alertRed
-                                          : warningOrange),
-                                ),
-                              ),
-                              Text(
-                                '$paymentLabel ${currencyFormatter.format(loan.calculatedPaymentAmount)}',
-                                style: TextStyle(fontSize: 14, color: textColor),
-                              ),
-                              Text(
-                                'Vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}',
-                                style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.7)),
-                              ),
-                              Padding(
-                                padding: const EdgeInsets.only(top: 8.0),
-                                child: Row(
-                                  children: [
-                                    // 💡 Usar el número del cliente
-                                    if (clientPhone != null && clientPhone.isNotEmpty)
-                                      Expanded(
-                                        child: ElevatedButton.icon(
-                                          onPressed: () => _makePhoneCall(context, clientPhone!),
-                                          icon: const Icon(Icons.phone, size: 18),
-                                          label: const Text('Llamar'),
-                                          style: ElevatedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                                          ),
-                                        ),
-                                      ),
-                                    if (clientPhone != null && clientPhone.isNotEmpty && clientWhatsapp != null && clientWhatsapp.isNotEmpty)
-                                      const SizedBox(width: 8),
-                                    // 💡 Usar el número de WhatsApp del cliente
-                                    if (clientWhatsapp != null && clientWhatsapp.isNotEmpty)
-                                      Expanded(
-                                        child: ElevatedButton.icon(
-                                          onPressed: () => _launchWhatsApp(context, clientWhatsapp!),
-                                          icon: const Icon(FontAwesomeIcons.whatsapp, size: 18),
-                                          label: const Text('WhatsApp'),
-                                          style: ElevatedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(horizontal: 4),
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            ],
+                          Text(
+                            'Tasa: ${(loan.interestRate * 100).toStringAsFixed(2)}%',
+                            style: TextStyle(fontSize: 14, color: textColor),
                           ),
-                        ),
-                        Positioned(
-                          top: 8.0,
-                          right: 8.0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: primaryBlue,
-                              borderRadius: BorderRadius.circular(16.0),
-                            ),
-                            child: Text(
-                              'ID: ${loan.id.replaceAll(RegExp(r'[^0-9]'), '').substring(0, min(5, loan.id.length))}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
+                          Text(
+                            'Plazo: ${loan.termValue} ${loan.termUnit}',
+                            style: TextStyle(fontSize: 14, color: textColor),
+                          ),
+                          Text(
+                            'Frecuencia: ${loan.paymentFrequency}',
+                            style: TextStyle(fontSize: 14, color: textColor),
+                          ),
+                          Text(
+                            'Estado: ${loan.status.toUpperCase()}',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: loan.isFullyPaid
+                                  ? mainGreen
+                                  : (loan.status == 'atrasado'
+                                      ? alertRed
+                                      : warningOrange),
                             ),
                           ),
-                        ),
-                      ],
+                          Text(
+                            '$paymentLabel ${currencyFormatter.format(loan.calculatedPaymentAmount)}',
+                            style: TextStyle(fontSize: 14, color: textColor),
+                          ),
+                          Text(
+                            'Vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}',
+                            style: TextStyle(fontSize: 13, color: textColor.withOpacity(0.7)),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8.0),
+                            child: Row(
+                              children: [
+                                if (clientPhone != null && clientPhone.isNotEmpty)
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _makePhoneCall(context, clientPhone!),
+                                      icon: const Icon(Icons.phone, size: 18),
+                                      label: const Text('Llamar'),
+                                      style: ElevatedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      ),
+                                    ),
+                                  ),
+                                if (clientPhone != null && clientPhone.isNotEmpty && clientWhatsapp != null && clientWhatsapp.isNotEmpty)
+                                  const SizedBox(width: 8),
+                                if (clientWhatsapp != null && clientWhatsapp.isNotEmpty)
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _launchWhatsApp(context, clientWhatsapp!),
+                                      icon: const Icon(FontAwesomeIcons.whatsapp, size: 18),
+                                      label: const Text('WhatsApp'),
+                                      style: ElevatedButton.styleFrom(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  );
-                },
+                    Positioned(
+                      top: 8.0,
+                      right: 8.0,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: primaryBlue,
+                          borderRadius: BorderRadius.circular(16.0),
+                        ),
+                        child: Text(
+                          'ID: ${loan.id.replaceAll(RegExp(r'[^0-9]'), '').substring(0, min(5, loan.id.length))}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               );
             },
           );
@@ -319,8 +333,9 @@ class LoanListScreen extends StatelessWidget {
           await Navigator.of(context).push(
             MaterialPageRoute(builder: (context) => const AddLoanScreen()),
           );
-          // Recargar la lista de préstamos al regresar de la pantalla de agregar préstamo.
+          // Recargar la lista de préstamos y clientes al regresar
           Provider.of<LoanProvider>(context, listen: false).loadLoans();
+          await _loadClients();
         },
         child: const Icon(Icons.add),
       ),

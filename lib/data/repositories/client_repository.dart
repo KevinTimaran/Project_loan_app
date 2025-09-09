@@ -9,7 +9,6 @@ class ClientRepository implements IClientRepository {
   static const String _loanBoxName = 'loans';
 
   Future<Box<Client>> _getClientBox() async {
-    // Asegúrate de que la caja esté abierta si aún no lo está.
     if (!Hive.isBoxOpen(_clientBoxName)) {
       await Hive.openBox<Client>(_clientBoxName);
     }
@@ -17,7 +16,6 @@ class ClientRepository implements IClientRepository {
   }
 
   Future<Box<LoanModel>> _getLoanBox() async {
-    // Asegúrate de que la caja esté abierta si aún no lo está.
     if (!Hive.isBoxOpen(_loanBoxName)) {
       await Hive.openBox<LoanModel>(_loanBoxName);
     }
@@ -36,6 +34,11 @@ class ClientRepository implements IClientRepository {
     return box.values.toList();
   }
 
+  // 🆕 AÑADIR ESTE MÉTODO
+  Future<List<Client>> getAllClients() async {
+    return await getClients(); // Simplemente llama al método existente
+  }
+
   @override
   Future<List<Client>> searchClients(String query) async {
     final box = await _getClientBox();
@@ -50,8 +53,6 @@ class ClientRepository implements IClientRepository {
   @override
   Future<void> updateClient(Client client) async {
     final box = await _getClientBox();
-    // 💡 El método `put` sobreescribe el objeto con la misma clave.
-    // 💡 Usa el `id` del cliente para identificarlo.
     await box.put(client.id, client);
   }
 
