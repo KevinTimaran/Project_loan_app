@@ -47,6 +47,10 @@ class LoanModel extends HiveObject {
   @HiveField(12)
   late String termUnit;
 
+  // AÑADIDO: Campo para el número de préstamo legible.
+  @HiveField(13)
+  late int loanNumber;
+
   LoanModel({
     String? id,
     required this.clientId,
@@ -61,8 +65,12 @@ class LoanModel extends HiveObject {
     this.whatsappNumber,
     this.phoneNumber,
     this.termUnit = 'Meses',
+    int? loanNumber,
   }) {
     this.id = id ?? const Uuid().v4();
+    // Genera un número de préstamo a partir de un hash del ID
+    // o usa el que se proporcione.
+    this.loanNumber = loanNumber ?? (this.id.hashCode % 100000).abs();
     debugPrint('DEBUG CONSTRUCTOR: LoanModel creado con ID: ${this.id}');
   }
 
@@ -109,7 +117,6 @@ class LoanModel extends HiveObject {
     return calculatedPaymentAmount;
   }
 
-  // Se añade esta propiedad para resolver el error
   double get totalAmountToPay {
     return calculatedPaymentAmount * _numberOfPayments;
   }
@@ -142,11 +149,12 @@ class LoanModel extends HiveObject {
       'termUnit': termUnit,
       'calculatedPaymentAmount': calculatedPaymentAmount,
       'totalAmountDue': totalAmountDue,
+      'loanNumber': loanNumber,
     };
   }
 
   @override
   String toString() {
-    return 'LoanModel(id: $id, clientId: $clientId, clientName: $clientName, amount: $amount, interestRate: $interestRate, termValue: $termValue, termUnit: $termUnit, startDate: $startDate, dueDate: $dueDate, status: $status, frequency: $paymentFrequency, whatsapp: $whatsappNumber, phone: $phoneNumber)';
+    return 'LoanModel(id: $id, loanNumber: $loanNumber, clientId: $clientId, clientName: $clientName, amount: $amount, interestRate: $interestRate, termValue: $termValue, termUnit: $termUnit, startDate: $startDate, dueDate: $dueDate, status: $status, frequency: $paymentFrequency, whatsapp: $whatsappNumber, phone: $phoneNumber)';
   }
 }

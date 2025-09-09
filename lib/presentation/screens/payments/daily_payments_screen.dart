@@ -1,4 +1,3 @@
-// lib/presentation/screens/payments/daily_payments_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -46,12 +45,14 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
 
     final payments = await _paymentRepository.getPaymentsByDate(_selectedDate);
 
-    // Mapeamos los futuros para cargar clientes y préstamos en paralelo
     final futures = payments.map((payment) async {
-      final client = await _clientRepository.getClientById(payment.loanId);
       final loan = await _loanRepository.getLoanById(payment.loanId);
-      _clientsMap[payment.loanId] = client;
       _loansMap[payment.loanId] = loan;
+
+      if (loan != null) {
+        final client = await _clientRepository.getClientById(loan.clientId);
+        _clientsMap[loan.clientId] = client;
+      }
     });
 
     await Future.wait(futures);
@@ -180,10 +181,11 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                         itemBuilder: (context, index) {
                           final payment = _dailyPayments[index];
                           final loan = _loansMap[payment.loanId];
-                          final client = _clientsMap[payment.loanId];
+                          final client = _clientsMap[loan?.clientId];
                           
                           final isFullPayment = loan != null && payment.amount == loan.calculatedPaymentAmount;
                           final leadingIcon = isFullPayment ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.circle_outlined, color: Colors.orange);
+
                           return Dismissible(
                             key: Key(payment.id),
                             direction: DismissDirection.endToStart,
@@ -205,7 +207,7 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                                   style: const TextStyle(fontWeight: FontWeight.bold),
                                 ),
                                 subtitle: Text(
-                                  'Cliente: ${client?.name ?? 'Desconocido'} - Préstamo: #${loan?.id.substring(0, 4) ?? 'Desconocido'}',
+                                  'Cliente: ${client?.name ?? 'Desconocido'} - Préstamo: #${loan?.loanNumber ?? 'Desconocido'}',
                                 ),
                                 trailing: Text(
                                   DateFormat('hh:mm a').format(payment.date),

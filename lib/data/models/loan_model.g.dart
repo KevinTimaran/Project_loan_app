@@ -30,13 +30,14 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       whatsappNumber: fields[10] as String?,
       phoneNumber: fields[11] as String?,
       termUnit: fields[12] as String,
+      loanNumber: fields[13] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, LoanModel obj) {
     writer
-      ..writeByte(13)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -62,7 +63,9 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       ..writeByte(11)
       ..write(obj.phoneNumber)
       ..writeByte(12)
-      ..write(obj.termUnit);
+      ..write(obj.termUnit)
+      ..writeByte(13)
+      ..write(obj.loanNumber);
   }
 
   @override
