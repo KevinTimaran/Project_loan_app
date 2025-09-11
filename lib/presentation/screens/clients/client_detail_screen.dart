@@ -6,8 +6,9 @@ import 'package:loan_app/domain/usecases/client/check_client_active_loans.dart';
 import 'package:loan_app/domain/usecases/client/delete_client.dart';
 import 'package:loan_app/domain/usecases/client/get_clients.dart';
 import 'package:loan_app/presentation/screens/clients/client_form_screen.dart';
-import 'package:url_launcher/url_launcher.dart'; 
+import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:loan_app/presentation/screens/loans/loan_history_screen.dart'; // CORREGIDO: Importa la ruta correcta
 
 class ClientDetailScreen extends StatefulWidget {
   final String clientId;
@@ -198,15 +199,19 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
               ],
             ),
             const Divider(),
+            // CAMBIO: Ahora el botón navega a la pantalla de historial
             ElevatedButton(
               onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                      content: Text(
-                          'Funcionalidad de préstamos por cliente (próximamente)')),
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => LoanHistoryScreen(
+                      clientId: _client!.id,
+                    ),
+                  ),
                 );
               },
-              child: const Text('Ver Préstamos del Cliente'),
+              child: const Text('Ver Historial de Préstamos del Cliente'),
             ),
           ],
         ),

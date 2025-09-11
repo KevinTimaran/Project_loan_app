@@ -7,7 +7,7 @@ import 'package:loan_app/domain/usecases/client/get_clients.dart';
 import 'package:loan_app/domain/usecases/client/search_clients.dart';
 import 'package:loan_app/presentation/screens/clients/client_form_screen.dart';
 import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart';
-
+import 'package:loan_app/presentation/screens/loans/loan_history_screen.dart';
 class ClientListScreen extends StatefulWidget {
   final String? searchTerm;
 
@@ -120,15 +120,17 @@ class _ClientListScreenState extends State<ClientListScreen> {
                                 Text('Notas: ${client.notes}', maxLines: 1, overflow: TextOverflow.ellipsis),
                             ],
                           ),
-                          onTap: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ClientDetailScreen(clientId: client.id),
-                              ),
-                            );
-                            _loadClients();
-                          },
+                            onTap: () async {
+                              // CORRECCIÓN: Navega a la pantalla de detalles del cliente
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ClientDetailScreen(clientId: client.id),
+                                ),
+                              );
+                              // Recargar la lista si un cliente fue modificado o eliminado
+                              _loadClients();
+                            },
                         ),
                       );
                     },

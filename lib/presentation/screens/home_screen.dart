@@ -8,6 +8,8 @@ import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/presentation/screens/payments/daily_payments_screen.dart'; // <--- Importación AÑADIDA
+import 'package:loan_app/presentation/screens/loans/active_loans_screen.dart';
+import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -289,17 +291,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     },
                     iconColor: Colors.blue.shade700,
                   ),
-                  _buildFeatureCard(
-                    context,
-                    icon: Icons.money_off,
-                    title: 'Gestión de Gastos',
-                    onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Módulo de Gastos en desarrollo.')),
-                      );
-                    },
-                    iconColor: alertRed,
+                  Card(
+                    elevation: 4,
+                    child: ListTile(
+                      leading: const Icon(Icons.history, color: Colors.blue),
+                      title: const Text('Ver Historial de Préstamos'),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),                        );
+                      },
+                    ),
                   ),
+                
                 ],
               ),
             ),

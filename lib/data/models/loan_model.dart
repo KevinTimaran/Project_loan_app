@@ -1,55 +1,52 @@
 // lib/data/models/loan_model.dart
+
 import 'package:hive/hive.dart';
 import 'package:uuid/uuid.dart';
 import 'dart:math';
-import 'package:flutter/foundation.dart';
+import 'package:loan_app/domain/entities/payment.dart';
 
 part 'loan_model.g.dart';
 
-@HiveType(typeId: 3)
+@HiveType(typeId: 2)
 class LoanModel extends HiveObject {
   @HiveField(0)
-  late String id;
-
+  final String id;
   @HiveField(1)
-  late String clientId; // ID único del cliente
-
+  final String clientId;
   @HiveField(2)
-  late String clientName; // NUEVO: Nombre del cliente para mostrar
-
+  final String clientName;
   @HiveField(3)
-  late double amount;
-
+  final double amount;
   @HiveField(4)
-  late double interestRate;
-
+  final double interestRate;
   @HiveField(5)
-  late int termValue;
-
+  final int termValue;
   @HiveField(6)
-  late DateTime startDate;
-
+  final DateTime startDate;
   @HiveField(7)
-  late DateTime dueDate;
-
+  final DateTime dueDate;
   @HiveField(8)
-  late String status;
-
+  String status;
   @HiveField(9)
-  late String paymentFrequency;
-
+  final String paymentFrequency;
   @HiveField(10)
-  late String? whatsappNumber;
-
+  final String? whatsappNumber;
   @HiveField(11)
-  late String? phoneNumber;
-
+  final String? phoneNumber;
   @HiveField(12)
-  late String termUnit;
-
-  // AÑADIDO: Campo para el número de préstamo legible.
+  final String termUnit;
   @HiveField(13)
-  late int loanNumber;
+  final int loanNumber;
+  @HiveField(14)
+  final double totalAmountToPay;
+  @HiveField(15)
+  final double calculatedPaymentAmount;
+  @HiveField(16) // ⚠️ NUEVO CAMPO
+  double totalPaid;
+  @HiveField(17) // ⚠️ NUEVO CAMPO
+  double remainingBalance;
+  @HiveField(18) // ⚠️ NUEVO CAMPO
+  List<Payment> payments;
 
   LoanModel({
     String? id,
@@ -66,15 +63,38 @@ class LoanModel extends HiveObject {
     this.phoneNumber,
     this.termUnit = 'Meses',
     int? loanNumber,
-  }) {
-    this.id = id ?? const Uuid().v4();
-    // Genera un número de préstamo a partir de un hash del ID
-    // o usa el que se proporcione.
-    this.loanNumber = loanNumber ?? (this.id.hashCode % 100000).abs();
-    debugPrint('DEBUG CONSTRUCTOR: LoanModel creado con ID: ${this.id}');
-  }
+    this.totalPaid = 0.0,
+    List<Payment>? payments,
+    double? remainingBalance,
+  })  : id = id ?? const Uuid().v4(),
+        loanNumber = loanNumber ?? (const Uuid().v4().hashCode % 100000).abs(),
+        totalAmountToPay = _calculateTotalAmountToPay(
+          amount: amount,
+          interestRate: interestRate,
+          termValue: termValue,
+          paymentFrequency: paymentFrequency,
+        ),
+        calculatedPaymentAmount = _calculatePaymentAmount(
+          amount: amount,
+          interestRate: interestRate,
+          termValue: termValue,
+          paymentFrequency: paymentFrequency,
+        ),
+        payments = payments ?? [],
+        remainingBalance = remainingBalance ?? _calculateTotalAmountToPay(
+          amount: amount,
+          interestRate: interestRate,
+          termValue: termValue,
+          paymentFrequency: paymentFrequency,
+        );
 
-  double get _periodInterestRate {
+  // Getter para saber si el préstamo está completamente pagado
+  bool get isFullyPaid => status == 'pagado';
+
+  static double _calculatePeriodInterestRate({
+    required double interestRate,
+    required String paymentFrequency,
+  }) {
     switch (paymentFrequency) {
       case 'Diario':
         return interestRate / 365;
@@ -88,73 +108,65 @@ class LoanModel extends HiveObject {
     }
   }
 
-  int get _numberOfPayments {
-    return termValue;
-  }
+  static double _calculatePaymentAmount({
+    required double amount,
+    required double interestRate,
+    required int termValue,
+    required String paymentFrequency,
+  }) {
+    final double rate = _calculatePeriodInterestRate(
+      interestRate: interestRate,
+      paymentFrequency: paymentFrequency,
+    );
+    final int n = termValue;
 
-  double get calculatedPaymentAmount {
-    if (_numberOfPayments == 0) return 0.0;
-    if (interestRate == 0) {
-      return amount / _numberOfPayments;
-    }
-
-    final double rate = _periodInterestRate;
-    final int n = _numberOfPayments;
-
-    if (rate == 0) {
-      return amount / n;
-    }
+    if (n == 0) return 0.0;
+    if (rate == 0) return amount / n;
 
     final double numerator = amount * rate * pow(1 + rate, n);
     final double denominator = pow(1 + rate, n) - 1;
 
     if (denominator == 0) return 0.0;
-
     return numerator / denominator;
   }
 
-  double get monthlyPayment {
-    return calculatedPaymentAmount;
+  static double _calculateTotalAmountToPay({
+    required double amount,
+    required double interestRate,
+    required int termValue,
+    required String paymentFrequency,
+  }) {
+    final double paymentAmount = _calculatePaymentAmount(
+      amount: amount,
+      interestRate: interestRate,
+      termValue: termValue,
+      paymentFrequency: paymentFrequency,
+    );
+    return paymentAmount * termValue;
   }
-
-  double get totalAmountToPay {
-    return calculatedPaymentAmount * _numberOfPayments;
-  }
-
-  double get totalAmountDue {
-    return calculatedPaymentAmount * _numberOfPayments;
-  }
-
-  bool get isFullyPaid => status == 'pagado';
 
   void updateStatus(String newStatus) {
     status = newStatus;
     save();
   }
 
-  Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'clientId': clientId,
-      'clientName': clientName,
-      'amount': amount,
-      'interestRate': interestRate,
-      'termValue': termValue,
-      'startDate': startDate.toIso8601String(),
-      'dueDate': dueDate.toIso8601String(),
-      'status': status,
-      'paymentFrequency': paymentFrequency,
-      'whatsappNumber': whatsappNumber,
-      'phoneNumber': phoneNumber,
-      'termUnit': termUnit,
-      'calculatedPaymentAmount': calculatedPaymentAmount,
-      'totalAmountDue': totalAmountDue,
-      'loanNumber': loanNumber,
-    };
-  }
+  // ⚠️ FUNCIÓN PARA REGISTRAR UN PAGO
+  void registerPayment(Payment newPayment) {
+    // 1. Añade el pago a la lista
+    payments.add(newPayment);
 
-  @override
-  String toString() {
-    return 'LoanModel(id: $id, loanNumber: $loanNumber, clientId: $clientId, clientName: $clientName, amount: $amount, interestRate: $interestRate, termValue: $termValue, termUnit: $termUnit, startDate: $startDate, dueDate: $dueDate, status: $status, frequency: $paymentFrequency, whatsapp: $whatsappNumber, phone: $phoneNumber)';
+    // 2. Suma el monto pagado
+    totalPaid += newPayment.amount;
+
+    // 3. Recalcula el saldo restante
+    remainingBalance = totalAmountToPay - totalPaid;
+
+    // 4. Si el saldo es menor o igual a cero, marca el préstamo como pagado
+    if (remainingBalance <= 0) {
+      status = 'pagado';
+    }
+
+    // 5. Guarda los cambios en Hive
+    save();
   }
 }

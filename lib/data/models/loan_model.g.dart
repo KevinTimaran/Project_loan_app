@@ -8,7 +8,7 @@ part of 'loan_model.dart';
 
 class LoanModelAdapter extends TypeAdapter<LoanModel> {
   @override
-  final int typeId = 3;
+  final int typeId = 2;
 
   @override
   LoanModel read(BinaryReader reader) {
@@ -31,13 +31,16 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       phoneNumber: fields[11] as String?,
       termUnit: fields[12] as String,
       loanNumber: fields[13] as int?,
+      totalPaid: fields[16] as double,
+      payments: (fields[18] as List?)?.cast<Payment>(),
+      remainingBalance: fields[17] as double?,
     );
   }
 
   @override
   void write(BinaryWriter writer, LoanModel obj) {
     writer
-      ..writeByte(14)
+      ..writeByte(19)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -65,7 +68,17 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       ..writeByte(12)
       ..write(obj.termUnit)
       ..writeByte(13)
-      ..write(obj.loanNumber);
+      ..write(obj.loanNumber)
+      ..writeByte(14)
+      ..write(obj.totalAmountToPay)
+      ..writeByte(15)
+      ..write(obj.calculatedPaymentAmount)
+      ..writeByte(16)
+      ..write(obj.totalPaid)
+      ..writeByte(17)
+      ..write(obj.remainingBalance)
+      ..writeByte(18)
+      ..write(obj.payments);
   }
 
   @override

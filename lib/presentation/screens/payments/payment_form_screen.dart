@@ -1,4 +1,5 @@
 // lib/presentation/screens/payments/payment_form_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
@@ -43,7 +44,10 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     // Si se pasa un préstamo, lo usamos directamente
     if (widget.loan != null) {
       _selectedLoan = widget.loan;
-      _expectedPaymentAmount = widget.loan!.calculatedPaymentAmount;
+      // Usamos el remainingBalance para la cuota esperada inicial
+      _expectedPaymentAmount = widget.loan!.remainingBalance < widget.loan!.calculatedPaymentAmount 
+        ? widget.loan!.remainingBalance 
+        : widget.loan!.calculatedPaymentAmount;
       _amountController.text = _expectedPaymentAmount.toStringAsFixed(0);
     } else {
       // Si no se pasa un préstamo, cargamos la lista de clientes
@@ -153,6 +157,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         final String cleanAmountText = _amountController.text.replaceAll(RegExp(r'[^\d]'), '');
         final double amount = double.tryParse(cleanAmountText) ?? 0.0;
         
+        // ⚠️ CAMBIO CRUCIAL: Se crea el pago y se llama a la función del modelo
         final newPayment = Payment(
           id: const Uuid().v4(),
           loanId: _selectedLoan!.id,
@@ -160,8 +165,9 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
           date: _selectedDate,
         );
 
-        await _paymentRepository.addPayment(newPayment);
-        
+        // Ya no necesitamos addPayment aquí, el modelo lo hace por nosotros
+        _selectedLoan!.registerPayment(newPayment);
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Pago registrado exitosamente')),
@@ -273,8 +279,10 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                                   if (loan != null) {
                                     setState(() {
                                       _selectedLoan = loan;
-                                      _expectedPaymentAmount = loan.calculatedPaymentAmount;
-                                      _amountController.text = loan.calculatedPaymentAmount.toStringAsFixed(0);
+                                      _expectedPaymentAmount = loan.remainingBalance < loan.calculatedPaymentAmount 
+                                        ? loan.remainingBalance
+                                        : loan.calculatedPaymentAmount;
+                                      _amountController.text = _expectedPaymentAmount.toStringAsFixed(0);
                                     });
                                   }
                                 },
@@ -324,7 +332,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                         controller: _amountController,
                         decoration: InputDecoration(
                           labelText: _expectedPaymentAmount > 0
-                            ? 'Monto del Pago (Cuota esperada: \$${NumberFormat.decimalPattern('es_CO').format(_expectedPaymentAmount)})'
+                            ? 'Monto del Pago (Saldo pendiente: \$${NumberFormat.decimalPattern('es_CO').format(_selectedLoan?.remainingBalance)})'
                             : 'Monto del Pago',
                           hintText: 'Ej: 150000',
                           border: const OutlineInputBorder(),

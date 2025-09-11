@@ -3,30 +3,54 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 
 class LoanRepository {
-  final Box<LoanModel> _loanBox = Hive.box<LoanModel>('loans');
+  final String _boxName = 'loans';
 
+  // Usa un getter asíncrono para asegurar que la caja de Hive está abierta.
+  Future<Box<LoanModel>> get _box async => await Hive.openBox<LoanModel>(_boxName);
+
+  // CORREGIDO: Usamos el ID del préstamo como clave para guardar en Hive.
   Future<void> addLoan(LoanModel loan) async {
-    await _loanBox.add(loan);
+    final box = await _box;
+    await box.put(loan.id, loan);
+  }
+
+  // AÑADIDO: Método para obtener todos los préstamos.
+  Future<List<LoanModel>> getAllLoans() async {
+    final box = await _box;
+    return box.values.toList();
+  }
+
+  // CORREGIDO: Ahora sí filtra por préstamos activos.
+  Future<List<LoanModel>> getActiveLoans() async {
+    final box = await _box;
+    return box.values.where((loan) => loan.status == 'activo').toList();
   }
 
   Future<List<LoanModel>> getLoansByClientId(String clientId) async {
-    return _loanBox.values
+    final box = await _box;
+    return box.values
         .where((loan) => loan.clientId == clientId)
         .toList();
   }
 
   Future<double> getTotalLoanedAmount() async {
-    final allLoans = _loanBox.values.toList();
-    // CORREGIDO: Se especifica el tipo `double` en `fold`
+    final box = await _box;
+    final allLoans = box.values.toList();
     return allLoans.fold<double>(0.0, (sum, item) => sum + item.amount);
   }
 
-  Future<List<LoanModel>> getActiveLoans() async {
-    return _loanBox.values.toList();
-  }
-  
-  // AÑADIDO: Método para obtener un préstamo por su ID.
   Future<LoanModel?> getLoanById(String id) async {
-    return _loanBox.get(id);
+    final box = await _box;
+    return box.get(id);
+  }
+
+  Future<void> updateLoan(LoanModel loan) async {
+    final box = await _box;
+    await box.put(loan.id, loan);
+  }
+
+  Future<void> deleteLoan(String id) async {
+    final box = await _box;
+    await box.delete(id);
   }
 }
