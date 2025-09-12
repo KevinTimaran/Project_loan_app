@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
+import 'package:loan_app/presentation/screens/loans/loan_form_screen.dart'; // Importa la pantalla de formulario
 
 class LoanHistoryScreen extends StatefulWidget {
   final String clientId;
@@ -29,20 +30,30 @@ class _LoanHistoryScreenState extends State<LoanHistoryScreen> {
   }
 
   Future<void> _loadClientLoans() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
     try {
       final loans = await _loanRepository.getLoansByClientId(widget.clientId);
-      setState(() {
-        _clientLoans = loans;
-      });
+      if (mounted) {
+        setState(() {
+          _clientLoans = loans;
+        });
+      }
     } catch (e) {
-      debugPrint('Error al cargar los préstamos del cliente: $e');
+      if (mounted) {
+        debugPrint('Error al cargar los préstamos del cliente: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error al cargar los préstamos. Intenta de nuevo.')),
+        );
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -67,15 +78,41 @@ class _LoanHistoryScreenState extends State<LoanHistoryScreen> {
                     final loan = _clientLoans[index];
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8.0),
+                      elevation: 2,
                       child: ListTile(
-                        title: Text('Préstamo #${loan.loanNumber} - ${currencyFormatter.format(loan.amount)}'),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                        title: Text(
+                          'Préstamo #${index + 1} - ${currencyFormatter.format(loan.amount)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Estado: ${loan.status}'),
+                            Text('Saldo: ${currencyFormatter.format(loan.remainingBalance)}'),
+                            Text('Fecha: ${DateFormat('dd/MM/yyyy').format(loan.startDate)}'),
                           ],
                         ),
-                        trailing: const Icon(Icons.arrow_forward_ios),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit, color: Colors.blue),
+                              onPressed: () async {
+                                final result = await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => LoanFormScreen(loan: loan),
+                                  ),
+                                );
+                                if (result == true) {
+                                  _loadClientLoans(); // Recarga la lista si el formulario fue guardado
+                                }
+                              },
+                            ),
+                            const SizedBox(width: 8),
+                            const Icon(Icons.arrow_forward_ios),
+                          ],
+                        ),
                         onTap: () {
                           Navigator.push(
                             context,
@@ -90,6 +127,7 @@ class _LoanHistoryScreenState extends State<LoanHistoryScreen> {
                 ),
       floatingActionButton: FloatingActionButton(
         onPressed: _loadClientLoans,
+        tooltip: 'Refrescar historial',
         child: const Icon(Icons.refresh),
       ),
     );

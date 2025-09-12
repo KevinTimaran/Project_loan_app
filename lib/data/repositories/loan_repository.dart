@@ -5,22 +5,18 @@ import 'package:loan_app/data/models/loan_model.dart';
 class LoanRepository {
   final String _boxName = 'loans';
 
-  // Usa un getter asíncrono para asegurar que la caja de Hive está abierta.
   Future<Box<LoanModel>> get _box async => await Hive.openBox<LoanModel>(_boxName);
 
-  // CORREGIDO: Usamos el ID del préstamo como clave para guardar en Hive.
   Future<void> addLoan(LoanModel loan) async {
     final box = await _box;
     await box.put(loan.id, loan);
   }
 
-  // AÑADIDO: Método para obtener todos los préstamos.
   Future<List<LoanModel>> getAllLoans() async {
     final box = await _box;
     return box.values.toList();
   }
 
-  // CORREGIDO: Ahora sí filtra por préstamos activos.
   Future<List<LoanModel>> getActiveLoans() async {
     final box = await _box;
     return box.values.where((loan) => loan.status == 'activo').toList();
@@ -37,6 +33,17 @@ class LoanRepository {
     final box = await _box;
     final allLoans = box.values.toList();
     return allLoans.fold<double>(0.0, (sum, item) => sum + item.amount);
+  }
+
+  Future<int> getNextLoanNumber() async {
+    final box = await _box;
+    if (box.isEmpty) {
+      return 1;
+    }
+    // Asumimos que los préstamos se guardan con un número de préstamo
+    final allLoans = box.values.toList();
+    allLoans.sort((a, b) => a.loanNumber.compareTo(b.loanNumber));
+    return allLoans.last.loanNumber + 1;
   }
 
   Future<LoanModel?> getLoanById(String id) async {

@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:path_provider/path_provider.dart'; // Importa este paquete
+import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
 // Importaciones de modelos y entidades
@@ -18,6 +18,8 @@ import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
 import 'package:loan_app/presentation/screens/home_screen.dart';
 import 'package:loan_app/presentation/screens/auth/pin_validation_screen.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
+import 'package:loan_app/presentation/providers/loan_calculator_provider.dart';
+import 'package:loan_app/presentation/screens/loans/loan_form_screen.dart'; // Importa la nueva pantalla de formulario
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +33,7 @@ Future<void> main() async {
   // AÑADIDO: Imprime la ruta donde Hive guarda los datos
   print('DEBUG: La ruta de Hive es: $appDocPath');
 
-  // 1. Registra todos los adaptadores, usando los modelos que ya hemos definido
+  // 1. Registra todos los adaptadores
   Hive.registerAdapter(ClientAdapter());
   Hive.registerAdapter(LoanModelAdapter());
   Hive.registerAdapter(PaymentAdapter()); 
@@ -42,8 +44,11 @@ Future<void> main() async {
   await Hive.openBox<Payment>('payments');
 
   runApp(
-    ChangeNotifierProvider(
-      create: (context) => LoanProvider()..loadLoans(),
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => LoanProvider()..loadLoans()),
+        ChangeNotifierProvider(create: (context) => LoanCalculatorProvider()),
+      ],
       child: const MyApp(),
     ),
   );
@@ -82,6 +87,7 @@ class MyApp extends StatelessWidget {
         '/addLoan': (context) => const AddLoanScreen(),
         '/loanList': (context) => const LoanListScreen(),
         '/addPayment': (context) => const PaymentFormScreen(),
+        '/loanForm': (context) => const LoanFormScreen(), // Nueva ruta para el formulario
       },
     );
   }

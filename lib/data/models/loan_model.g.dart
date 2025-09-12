@@ -34,6 +34,8 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       totalPaid: fields[16] as double,
       payments: (fields[18] as List?)?.cast<Payment>(),
       remainingBalance: fields[17] as double?,
+      totalAmountToPay: fields[14] as double?,
+      calculatedPaymentAmount: fields[15] as double?,
     );
   }
 
