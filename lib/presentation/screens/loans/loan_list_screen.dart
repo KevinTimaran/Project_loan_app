@@ -1,4 +1,5 @@
 // lib/presentation/screens/loans/loan_list_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -12,6 +13,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
+import 'package:loan_app/presentation/screens/loans/loan_form_screen.dart';
 
 class LoanListScreen extends StatefulWidget {
   const LoanListScreen({super.key});
@@ -328,18 +330,18 @@ class _LoanListScreenState extends State<LoanListScreen> {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: FloatingActionButton.extended(
         onPressed: () async {
           await Navigator.of(context).push(
-            MaterialPageRoute(builder: (context) => const AddLoanScreen()),
+            MaterialPageRoute(builder: (context) => const LoanFormScreen()),
           );
           // Recargar la lista de préstamos y clientes al regresar
           Provider.of<LoanProvider>(context, listen: false).loadLoans();
           await _loadClients();
         },
-        child: const Icon(Icons.add),
+        icon: const Icon(Icons.add),
+        label: const Text('Nuevo Préstamo'),
       ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.miniStartFloat,
     );
   }
 }
