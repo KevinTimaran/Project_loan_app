@@ -77,37 +77,71 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                   itemBuilder: (context, index) {
                     final loan = _clientLoans[index];
                     final bool isPaid = loan.status == 'pagado';
+                    final bool isOverdue = loan.status == 'mora';
+                    
+                    Color cardColor;
+                    Color statusDotColor;
+
+                    if (isPaid) {
+                      cardColor = Colors.green.shade50;
+                      statusDotColor = Colors.green;
+                    } else if (isOverdue) {
+                      cardColor = Colors.red.shade50;
+                      statusDotColor = Colors.red;
+                    } else {
+                      cardColor = Colors.white;
+                      statusDotColor = Colors.blue;
+                    }
 
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8.0),
                       elevation: 2,
+                      color: cardColor, // ✅ Aquí se aplica el color dinámico
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        title: Text(
-                          'Préstamo #${index + 1} - ${currencyFormatter.format(loan.amount)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: isPaid ? Colors.grey : Colors.black,
-                          ),
+                        leading: Icon(
+                          isPaid ? Icons.check_circle_outline : (isOverdue ? Icons.warning_amber : Icons.account_balance_wallet_outlined),
+                          color: isPaid ? Colors.green.shade700 : (isOverdue ? Colors.red.shade700 : Colors.orange),
+                        ),
+                        title: Row(
+                          children: [
+                            Text(
+                              'Préstamo #${loan.id.substring(0, 4)} - ${currencyFormatter.format(loan.amount)}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: isPaid ? Colors.grey[700] : Colors.black,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: statusDotColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ],
                         ),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Estado: ${loan.status}', 
+                              'Estado: ${loan.status}',
                               style: TextStyle(
-                                color: isPaid ? Colors.green : Colors.orange
-                              )
-                            ),
-                            Text(
-                              isPaid 
-                                ? 'Monto pagado: ${currencyFormatter.format(loan.totalAmountToPay)}'
-                                : 'Saldo: ${currencyFormatter.format(loan.remainingBalance)}'
+                                color: isPaid ? Colors.green.shade700 : (isOverdue ? Colors.red.shade700 : Colors.orange),
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             Text(
                               isPaid
-                                ? 'Fecha de finalización: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}'
-                                : 'Fecha de inicio: ${DateFormat('dd/MM/yyyy').format(loan.startDate)}'
+                                  ? 'Monto pagado: ${currencyFormatter.format(loan.totalAmountToPay)}'
+                                  : 'Saldo: ${currencyFormatter.format(loan.remainingBalance)}',
+                            ),
+                            Text(
+                              isPaid
+                                  ? 'Fecha de finalización: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}'
+                                  : 'Fecha de inicio: ${DateFormat('dd/MM/yyyy').format(loan.startDate)}',
                             ),
                           ],
                         ),
@@ -134,13 +168,16 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                                   const Icon(Icons.arrow_forward_ios),
                                 ],
                               ),
-                        onTap: () {
-                          Navigator.push(
+                        onTap: () async {
+                          final result = await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => LoanDetailScreen(loan: loan),
                             ),
                           );
+                          if (result == true) {
+                            _loadClientLoans();
+                          }
                         },
                       ),
                     );

@@ -1,3 +1,5 @@
+// lib/presentation/screens/loans/loan_detail_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
@@ -7,6 +9,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/domain/entities/payment.dart';
 import 'package:loan_app/data/repositories/payment_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
+import 'package:loan_app/presentation/screens/loans/loan_form_screen.dart'; // ✅ Importamos la pantalla de edición
 
 class LoanDetailScreen extends StatefulWidget {
   final LoanModel loan;
@@ -19,50 +22,16 @@ class LoanDetailScreen extends StatefulWidget {
 class _LoanDetailScreenState extends State<LoanDetailScreen> {
   final LoanRepository _loanRepository = LoanRepository();
   final PaymentRepository _paymentRepository = PaymentRepository();
-  late LoanModel _currentLoan;
-  bool _isLoading = false;
+  late Future<LoanModel?> _loanDetailsFuture;
 
   @override
   void initState() {
     super.initState();
-    _currentLoan = widget.loan;
-    _loadLoanDetails();
+    _loanDetailsFuture = _loadLoanDetails();
   }
 
-  Future<void> _loadLoanDetails() async {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = true;
-    });
-    try {
-      final updatedLoan = await _loanRepository.getLoanById(_currentLoan.id);
-      if (updatedLoan != null && mounted) {
-        // ⚠️ Validar si el préstamo ya está pagado
-        if (updatedLoan.isFullyPaid || updatedLoan.remainingBalance <= 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Este préstamo ya está totalmente pagado')),
-          );
-          Navigator.pop(context, true); // Cerramos esta pantalla
-          return;
-        }
-
-        setState(() {
-          _currentLoan = updatedLoan;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar detalles: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+  Future<LoanModel?> _loadLoanDetails() async {
+    return await _loanRepository.getLoanById(widget.loan.id);
   }
 
   Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
@@ -99,49 +68,102 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     }
   }
 
-  Future<void> _openRegisterPayment() async {
+  Future<void> _openRegisterPayment(LoanModel loan) async {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => PaymentFormScreen(loan: _currentLoan),
+        builder: (context) => PaymentFormScreen(loan: loan),
       ),
     );
 
     if (!mounted) return;
 
-    if (result != null && result is Map && result['refresh'] == true) {
-      final updatedLoanFromForm = result['updatedLoan'];
-      if (updatedLoanFromForm != null && updatedLoanFromForm is LoanModel) {
-        if (updatedLoanFromForm.isFullyPaid || updatedLoanFromForm.remainingBalance <= 0) {
-          Navigator.pop(context, true); // se cerrará si quedó en 0 tras registrar pago
-          return;
-        }
-        setState(() {
-          _currentLoan = updatedLoanFromForm;
-        });
-        return;
-      }
-      await _loadLoanDetails();
+    if (result != null && result == true) {
+      setState(() {
+        _loanDetailsFuture = _loadLoanDetails();
+      });
+    }
+  }
+
+  // ✅ NUEVA FUNCIÓN para abrir la pantalla de edición
+  Future<void> _openEditLoan(LoanModel loan) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => LoanFormScreen(loan: loan), // ✅ Pasamos el préstamo para edición
+      ),
+    );
+
+    if (!mounted) return;
+    if (result != null && result == true) {
+      setState(() {
+        _loanDetailsFuture = _loadLoanDetails();
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
-
-    final payments = _currentLoan.payments ?? <Payment>[];
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('Detalles del Préstamo #${_currentLoan.id.substring(0, 4)}'),
+        title: Text('Detalles del Préstamo #${widget.loan.loanNumber}'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+      body: FutureBuilder<LoanModel?>(
+        future: _loanDetailsFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError || snapshot.data == null) {
+            return const Center(child: Text('Error al cargar los detalles del préstamo.'));
+          }
+
+          final loan = snapshot.data!;
+          final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
+          final payments = loan.payments;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Card(
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Cliente: ${loan.clientName}',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 10),
+                        Text('Monto: ${currencyFormatter.format(loan.amount)}'),
+                        Text('Interés: ${(loan.interestRate * 100).toStringAsFixed(2)}%'),
+                        Text('Plazo: ${loan.termValue} ${loan.termUnit}'),
+                        Text('Frecuencia: ${loan.paymentFrequency}'),
+                        Text('Total a pagar: ${currencyFormatter.format(loan.totalAmountToPay)}'),
+                        Text('Cuota: ${currencyFormatter.format(loan.calculatedPaymentAmount)}'),
+                        Text('Fecha de inicio: ${DateFormat('dd/MM/yyyy').format(loan.startDate)}'),
+                        Text('Fecha de vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}'),
+                        const Divider(height: 20),
+                        Text(
+                          'Saldo Pagado: ${currencyFormatter.format(loan.totalPaid)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+                        ),
+                        Text(
+                          'Saldo Pendiente: ${currencyFormatter.format(loan.remainingBalance)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                if ((loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty) ||
+                    (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty))
                   Card(
                     elevation: 4,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -150,146 +172,110 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'Cliente: ${_currentLoan.clientName}',
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
+                          const Text('Opciones de Contacto', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
-                          Text('Monto: ${currencyFormatter.format(_currentLoan.amount)}'),
-                          Text('Interés: ${(_currentLoan.interestRate * 100).toStringAsFixed(2)}%'),
-                          Text('Plazo: ${_currentLoan.termValue} ${_currentLoan.termUnit}'),
-                          Text('Frecuencia: ${_currentLoan.paymentFrequency}'),
-                          Text('Total a pagar: ${currencyFormatter.format(_currentLoan.totalAmountToPay)}'),
-                          Text('Cuota: ${currencyFormatter.format(_currentLoan.calculatedPaymentAmount)}'),
-                          Text('Fecha de inicio: ${DateFormat('dd/MM/yyyy').format(_currentLoan.startDate)}'),
-                          Text('Fecha de vencimiento: ${DateFormat('dd/MM/yyyy').format(_currentLoan.dueDate)}'),
-                          const Divider(height: 20),
-                          Text(
-                            'Saldo Pagado: ${currencyFormatter.format(_currentLoan.totalPaid)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                          ),
-                          Text(
-                            'Saldo Pendiente: ${currencyFormatter.format(_currentLoan.remainingBalance)}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceAround,
+                            children: [
+                              if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty)
+                                ElevatedButton.icon(
+                                  onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
+                                  icon: const Icon(Icons.phone),
+                                  label: const Text('Llamar'),
+                                ),
+                              if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
+                                ElevatedButton.icon(
+                                  onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
+                                  icon: const Icon(FontAwesomeIcons.whatsapp),
+                                  label: const Text('WhatsApp'),
+                                ),
+                            ],
                           ),
                         ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  if ((_currentLoan.phoneNumber != null && _currentLoan.phoneNumber!.isNotEmpty) ||
-                      (_currentLoan.whatsappNumber != null && _currentLoan.whatsappNumber!.isNotEmpty))
-                    Card(
-                      elevation: 4,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Opciones de Contacto', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 10),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                if (_currentLoan.phoneNumber != null && _currentLoan.phoneNumber!.isNotEmpty)
-                                  ElevatedButton.icon(
-                                    onPressed: () => _makePhoneCall(context, _currentLoan.phoneNumber!),
-                                    icon: const Icon(Icons.phone),
-                                    label: const Text('Llamar'),
-                                  ),
-                                if (_currentLoan.whatsappNumber != null && _currentLoan.whatsappNumber!.isNotEmpty)
-                                  ElevatedButton.icon(
-                                    onPressed: () => _launchWhatsApp(context, _currentLoan.whatsappNumber!),
-                                    icon: const Icon(FontAwesomeIcons.whatsapp),
-                                    label: const Text('WhatsApp'),
-                                  ),
-                              ],
+                const SizedBox(height: 20),
+                const Text('Historial de Pagos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                payments.isEmpty
+                    ? const Center(child: Text('No hay pagos registrados.'))
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: payments.length,
+                        itemBuilder: (context, index) {
+                          final payment = payments[index];
+                          return Dismissible(
+                            key: ValueKey(payment.id),
+                            background: Container(
+                              color: Colors.red,
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20.0),
+                              child: const Icon(Icons.delete, color: Colors.white),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  const SizedBox(height: 20),
-                  const Text('Historial de Pagos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 10),
-                  payments.isEmpty
-                      ? const Center(child: Text('No hay pagos registrados.'))
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: payments.length,
-                          itemBuilder: (context, index) {
-                            final payment = payments[index];
-                            return Dismissible(
-                              key: ValueKey(payment.id),
-                              background: Container(
-                                color: Colors.red,
-                                alignment: Alignment.centerRight,
-                                padding: const EdgeInsets.only(right: 20.0),
-                                child: const Icon(Icons.delete, color: Colors.white),
-                              ),
-                              direction: DismissDirection.endToStart,
-                              confirmDismiss: (direction) async {
-                                bool? confirmDelete = await showDialog<bool>(
-                                  context: context,
-                                  builder: (BuildContext context) {
-                                    return AlertDialog(
-                                      title: const Text('Confirmar Eliminación'),
-                                      content: const Text(
-                                          '¿Estás seguro de que deseas eliminar este pago? Esta acción es irreversible.'),
-                                      actions: <Widget>[
-                                        TextButton(
-                                          onPressed: () => Navigator.of(context).pop(false),
-                                          child: const Text('Cancelar'),
-                                        ),
-                                        ElevatedButton(
-                                          onPressed: () => Navigator.of(context).pop(true),
-                                          style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                                          child: const Text('Eliminar'),
-                                        ),
-                                      ],
+                            direction: DismissDirection.endToStart,
+                            confirmDismiss: (direction) async {
+                              bool? confirmDelete = await showDialog<bool>(
+                                context: context,
+                                builder: (BuildContext context) {
+                                  return AlertDialog(
+                                    title: const Text('Confirmar Eliminación'),
+                                    content: const Text(
+                                        '¿Estás seguro de que deseas eliminar este pago? Esta acción es irreversible.'),
+                                    actions: <Widget>[
+                                      TextButton(
+                                        onPressed: () => Navigator.of(context).pop(false),
+                                        child: const Text('Cancelar'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () => Navigator.of(context).pop(true),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                        child: const Text('Eliminar'),
+                                      ),
+                                    ],
+                                  );
+                                },
+                              );
+                              if (confirmDelete == true) {
+                                try {
+                                  await _paymentRepository.deletePayment(payment.id);
+                                  setState(() {
+                                    _loanDetailsFuture = _loadLoanDetails();
+                                  });
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Pago eliminado exitosamente.')),
+                                  );
+                                } catch (e) {
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Error al eliminar pago: $e')),
                                     );
-                                  },
-                                );
-                                if (confirmDelete == true) {
-                                  try {
-                                    await _paymentRepository.deletePayment(payment.id);
-                                    await _loadLoanDetails();
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Pago eliminado exitosamente.')),
-                                      );
-                                    }
-                                  } catch (e) {
-                                    if (mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Error al eliminar pago: $e')),
-                                      );
-                                    }
                                   }
                                 }
-                                return confirmDelete;
-                              },
-                              child: Card(
-                                margin: const EdgeInsets.symmetric(vertical: 4),
-                                child: ListTile(
-                                  leading: const Icon(Icons.receipt),
-                                  title: Text(
-                                    'Pago de: ${currencyFormatter.format(payment.amount)}',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                  subtitle: Text(
-                                    'Fecha: ${DateFormat('dd/MM/yyyy').format(payment.date)}',
-                                  ),
+                              }
+                              return confirmDelete;
+                            },
+                            child: Card(
+                              margin: const EdgeInsets.symmetric(vertical: 4),
+                              child: ListTile(
+                                leading: const Icon(Icons.receipt),
+                                title: Text(
+                                  'Pago de: ${currencyFormatter.format(payment.amount)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                subtitle: Text(
+                                  'Fecha: ${DateFormat('dd/MM/yyyy').format(payment.date)}',
                                 ),
                               ),
-                            );
-                          },
-                        ),
-                  const SizedBox(height: 20),
+                            ),
+                          );
+                        },
+                      ),
+                const SizedBox(height: 20),
+                if (loan.remainingBalance > 0)
                   ElevatedButton.icon(
-                    onPressed: _openRegisterPayment,
+                    onPressed: () => _openRegisterPayment(loan),
                     icon: const Icon(Icons.add_task),
                     label: const Text('Registrar Pago'),
                     style: ElevatedButton.styleFrom(
@@ -297,9 +283,19 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                       backgroundColor: Theme.of(context).primaryColor,
                     ),
                   ),
-                ],
-              ),
+              ],
             ),
+          );
+        },
+      ),
+      // ✅ BOTÓN DE EDITAR: solo visible si el préstamo está activo
+      floatingActionButton: widget.loan.status == 'activo'
+          ? FloatingActionButton(
+              onPressed: () => _openEditLoan(widget.loan),
+              child: const Icon(Icons.edit),
+            )
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
     );
   }
 }
