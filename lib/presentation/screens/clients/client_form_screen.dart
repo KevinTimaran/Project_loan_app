@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart'; // Para generar IDs únicos
+import 'package:uuid/uuid.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/usecases/client/create_client.dart';
 import 'package:loan_app/domain/usecases/client/update_client.dart';
 
 class ClientFormScreen extends StatefulWidget {
-  final Client? client; // Si es para editar, se pasa el cliente existente
+  final Client? client;
 
   const ClientFormScreen({super.key, this.client});
 
@@ -70,21 +70,17 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
       try {
         if (isEditing) {
           await _updateClient.call(client);
-          // ignore: use_build_context_synchronously
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Cliente actualizado exitosamente')),
           );
         } else {
           await _createClient.call(client);
-          // ignore: use_build_context_synchronously
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Cliente creado exitosamente')),
           );
         }
-        // ignore: use_build_context_synchronously
         Navigator.pop(context);
       } catch (e) {
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al guardar cliente: $e')),
         );
@@ -180,6 +176,11 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
               ElevatedButton(
                 onPressed: _saveClient,
                 child: Text(widget.client == null ? 'Guardar Cliente' : 'Actualizar Cliente'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ).copyWith(
+                  animationDuration: Duration.zero, // ✅ Evita el error de interpolación de estilos
+                ),
               ),
             ],
           ),

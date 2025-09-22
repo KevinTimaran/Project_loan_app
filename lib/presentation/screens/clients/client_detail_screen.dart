@@ -1,4 +1,3 @@
-// lib/presentation/screens/clients/client_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
@@ -8,7 +7,7 @@ import 'package:loan_app/domain/usecases/client/get_clients.dart';
 import 'package:loan_app/presentation/screens/clients/client_form_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:loan_app/presentation/screens/loans/loan_history_screen.dart'; // CORREGIDO: Importa la ruta correcta
+import 'package:loan_app/presentation/screens/clients/client_history_screen.dart';
 
 class ClientDetailScreen extends StatefulWidget {
   final String clientId;
@@ -45,7 +44,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     final hasActiveLoans = await _checkClientActiveLoans.call(_client!.id);
 
     if (hasActiveLoans) {
-      // ignore: use_build_context_synchronously
       _showAlertDialog(
         context,
         'No se puede eliminar',
@@ -54,21 +52,20 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       return;
     }
 
-    // ignore: use_build_context_synchronously
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar Eliminación'),
-        content: Text(
-            '¿Estás seguro de que quieres eliminar a ${_client!.name} ${_client!.lastName}?'),
+        content: Text('¿Estás seguro de que quieres eliminar a ${_client!.name} ${_client!.lastName}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancelar'),
+            style: TextButton.styleFrom().copyWith(animationDuration: Duration.zero),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red).copyWith(animationDuration: Duration.zero),
             child: const Text('Eliminar'),
           ),
         ],
@@ -78,14 +75,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     if (confirm == true) {
       try {
         await _deleteClient.call(_client!.id);
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cliente eliminado exitosamente')),
         );
-        // ignore: use_build_context_synchronously
-        Navigator.pop(context); // Regresar a la lista de clientes
+        Navigator.pop(context);
       } catch (e) {
-        // ignore: use_build_context_synchronously
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al eliminar cliente: $e')),
         );
@@ -103,18 +97,17 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('OK'),
+            style: TextButton.styleFrom().copyWith(animationDuration: Duration.zero),
           ),
         ],
       ),
     );
   }
 
-  // 💡 Lógica para llamadas y WhatsApp
   Future<void> _launchUrl(String url) async {
     if (await canLaunchUrl(Uri.parse(url))) {
       await launchUrl(Uri.parse(url));
     } else {
-      // ignore: use_build_context_synchronously
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No se pudo abrir la aplicación.')),
       );
@@ -133,11 +126,25 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
 
   void _sendWhatsAppMessage() {
     if (_client?.whatsapp != null && _client!.whatsapp.isNotEmpty) {
+      // ✅ URL CORREGIDA: Sin espacios en blanco
       _launchUrl('https://wa.me/${_client!.whatsapp}');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('El cliente no tiene un número de WhatsApp registrado.')),
       );
+    }
+  }
+
+  // ✅ Función para abrir la pantalla de edición
+  void _openEditClient() async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ClientFormScreen(client: _client),
+      ),
+    );
+    if (result == true) {
+      _loadClientDetails(); // Recargar datos si se guardaron cambios
     }
   }
 
@@ -153,35 +160,44 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('${_client!.name} ${_client!.lastName}'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            onPressed: () async {
-              // Navegar a la pantalla de formulario para editar
-              await Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => ClientFormScreen(client: _client),
-                ),
-              );
-              // 💡 ¡Este es el paso clave! Recargar los detalles del cliente al volver
-              _loadClientDetails();
-            },
-          ),
-        ],
+        // ✅ No hay botón de editar en la AppBar
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildInfoRow('Nombre:', '${_client!.name} ${_client!.lastName}'),
-            _buildInfoRow('Identificación:', _client!.identification),
-            _buildInfoRow('Dirección:', _client!.address ?? 'N/A'),
-            _buildInfoRow('Teléfono:', _client!.phone),
-            _buildInfoRow('WhatsApp:', _client!.whatsapp),
-            _buildInfoRow('Notas:', _client!.notes),
-            const Divider(),
+            // 🎯 Tarjeta de información del cliente
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ✏️ Botón de editar DENTRO de la tarjeta
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: IconButton(
+                        icon: const Icon(Icons.edit, color: Colors.blue),
+                        onPressed: _openEditClient,
+                        tooltip: 'Editar cliente',
+                      ),
+                    ),
+                    _buildInfoRow('Nombre:', '${_client!.name} ${_client!.lastName}'),
+                    _buildInfoRow('Identificación:', _client!.identification),
+                    _buildInfoRow('Dirección:', _client!.address ?? 'N/A'),
+                    _buildInfoRow('Teléfono:', _client!.phone),
+                    _buildInfoRow('WhatsApp:', _client!.whatsapp),
+                    _buildInfoRow('Notas:', _client!.notes),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
             // 💡 Botones de llamada y WhatsApp
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -190,28 +206,39 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                   onPressed: _makePhoneCall,
                   icon: const Icon(Icons.phone),
                   label: const Text('Llamar'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ).copyWith(animationDuration: Duration.zero),
                 ),
                 ElevatedButton.icon(
                   onPressed: _sendWhatsAppMessage,
                   icon: const Icon(FontAwesomeIcons.whatsapp),
                   label: const Text('WhatsApp'),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ).copyWith(animationDuration: Duration.zero),
                 ),
               ],
             ),
-            const Divider(),
-            // CAMBIO: Ahora el botón navega a la pantalla de historial
+
+            const SizedBox(height: 20),
+
+            // ✅ BOTÓN DE HISTORIAL
             ElevatedButton(
               onPressed: () {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => LoanHistoryScreen(
+                    builder: (context) => ClientHistoryScreen(
                       clientId: _client!.id,
                     ),
                   ),
                 );
               },
               child: const Text('Ver Historial de Préstamos del Cliente'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+              ).copyWith(animationDuration: Duration.zero),
             ),
           ],
         ),

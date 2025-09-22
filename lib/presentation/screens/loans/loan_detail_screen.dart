@@ -1,5 +1,3 @@
-// lib/presentation/screens/loans/loan_detail_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
@@ -9,7 +7,6 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/domain/entities/payment.dart';
 import 'package:loan_app/data/repositories/payment_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
-import 'package:loan_app/presentation/screens/loans/loan_form_screen.dart'; // ✅ Importamos la pantalla de edición
 
 class LoanDetailScreen extends StatefulWidget {
   final LoanModel loan;
@@ -55,6 +52,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     if (await canLaunchUrl(whatsappUri)) {
       await launchUrl(whatsappUri);
     } else {
+      // ✅ URL CORREGIDA: Sin espacios en blanco
       final Uri webWhatsappUri = Uri.parse('https://wa.me/$whatsappNumber');
       if (await canLaunchUrl(webWhatsappUri)) {
         await launchUrl(webWhatsappUri, mode: LaunchMode.externalApplication);
@@ -67,40 +65,23 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
       }
     }
   }
-
-  Future<void> _openRegisterPayment(LoanModel loan) async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PaymentFormScreen(loan: loan),
-      ),
-    );
-
-    if (!mounted) return;
-
-    if (result != null && result == true) {
-      setState(() {
-        _loanDetailsFuture = _loadLoanDetails();
-      });
-    }
-  }
-
+  
   // ✅ NUEVA FUNCIÓN para abrir la pantalla de edición
-  Future<void> _openEditLoan(LoanModel loan) async {
+ Future<void> _openRegisterPayment(LoanModel loan) async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (context) => LoanFormScreen(loan: loan), // ✅ Pasamos el préstamo para edición
-      ),
+      MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
     );
 
     if (!mounted) return;
-    if (result != null && result == true) {
+    if (result == true) {
       setState(() {
         _loanDetailsFuture = _loadLoanDetails();
       });
     }
   }
+
+  // ❌ ELIMINADA: Ya no se usa _openEditLoan
 
   @override
   Widget build(BuildContext context) {
@@ -182,12 +163,14 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                                   onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
                                   icon: const Icon(Icons.phone),
                                   label: const Text('Llamar'),
+                                  style: ElevatedButton.styleFrom(animationDuration: Duration.zero),
                                 ),
                               if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
                                 ElevatedButton.icon(
                                   onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
                                   icon: const Icon(FontAwesomeIcons.whatsapp),
                                   label: const Text('WhatsApp'),
+                                  style: ElevatedButton.styleFrom(animationDuration: Duration.zero),
                                 ),
                             ],
                           ),
@@ -221,16 +204,16 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                                 builder: (BuildContext context) {
                                   return AlertDialog(
                                     title: const Text('Confirmar Eliminación'),
-                                    content: const Text(
-                                        '¿Estás seguro de que deseas eliminar este pago? Esta acción es irreversible.'),
+                                    content: const Text('¿Estás seguro de que deseas eliminar este pago? Esta acción es irreversible.'),
                                     actions: <Widget>[
                                       TextButton(
                                         onPressed: () => Navigator.of(context).pop(false),
                                         child: const Text('Cancelar'),
+                                        style: TextButton.styleFrom().copyWith(animationDuration: Duration.zero),
                                       ),
                                       ElevatedButton(
                                         onPressed: () => Navigator.of(context).pop(true),
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red).copyWith(animationDuration: Duration.zero),
                                         child: const Text('Eliminar'),
                                       ),
                                     ],
@@ -273,6 +256,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                         },
                       ),
                 const SizedBox(height: 20),
+                // ✅ AGREGADO: Ahora se puede registrar pago desde aquí
                 if (loan.remainingBalance > 0)
                   ElevatedButton.icon(
                     onPressed: () => _openRegisterPayment(loan),
@@ -281,6 +265,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                     style: ElevatedButton.styleFrom(
                       foregroundColor: Colors.white,
                       backgroundColor: Theme.of(context).primaryColor,
+                      animationDuration: Duration.zero,
                     ),
                   ),
               ],
@@ -288,14 +273,10 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
           );
         },
       ),
-      // ✅ BOTÓN DE EDITAR: solo visible si el préstamo está activo
-      floatingActionButton: widget.loan.status == 'activo'
-          ? FloatingActionButton(
-              onPressed: () => _openEditLoan(widget.loan),
-              child: const Icon(Icons.edit),
-            )
-          : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.endDocked,
+      // ❌ ELIMINADO: No se puede editar préstamo desde aquí
+      // floatingActionButton: widget.loan.status == 'activo'
+      //     ? FloatingActionButton(...)
+      //     : null,
     );
   }
 }

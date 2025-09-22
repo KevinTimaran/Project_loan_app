@@ -1,10 +1,8 @@
-// lib/presentation/screens/clients/client_history_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
-import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
-import 'package:loan_app/presentation/screens/loans/loan_form_screen.dart';
+import 'package:loan_app/presentation/screens/loans/loan_view_only_screen.dart';
 
 class ClientHistoryScreen extends StatefulWidget {
   final String clientId;
@@ -31,9 +29,11 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
 
   Future<void> _loadClientLoans() async {
     if (!mounted) return;
+
     setState(() {
       _isLoading = true;
     });
+
     try {
       final loans = await _loanRepository.getLoansByClientId(widget.clientId);
       if (mounted) {
@@ -42,8 +42,8 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
         });
       }
     } catch (e) {
+      debugPrint('Error al cargar los préstamos del cliente: $e');
       if (mounted) {
-        debugPrint('Error al cargar los préstamos del cliente: $e');
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Error al cargar los préstamos. Intenta de nuevo.')),
         );
@@ -78,7 +78,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                     final loan = _clientLoans[index];
                     final bool isPaid = loan.status == 'pagado';
                     final bool isOverdue = loan.status == 'mora';
-                    
+
                     Color cardColor;
                     Color statusDotColor;
 
@@ -96,7 +96,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8.0),
                       elevation: 2,
-                      color: cardColor, // ✅ Aquí se aplica el color dinámico
+                      color: cardColor,
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                         leading: Icon(
@@ -109,7 +109,7 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                               'Préstamo #${loan.id.substring(0, 4)} - ${currencyFormatter.format(loan.amount)}',
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: isPaid ? Colors.grey[700] : Colors.black,
+                                color: isPaid ? Colors.grey.shade700 : Colors.black, // ✅ Corregido
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -145,37 +145,15 @@ class _ClientHistoryScreenState extends State<ClientHistoryScreen> {
                             ),
                           ],
                         ),
-                        trailing: isPaid
-                            ? const Icon(Icons.arrow_forward_ios)
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(Icons.edit, color: Colors.blue),
-                                    onPressed: () async {
-                                      final result = await Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) => LoanFormScreen(loan: loan),
-                                        ),
-                                      );
-                                      if (result == true) {
-                                        _loadClientLoans();
-                                      }
-                                    },
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Icon(Icons.arrow_forward_ios),
-                                ],
-                              ),
+                        trailing: const Icon(Icons.arrow_forward_ios),
                         onTap: () async {
                           final result = await Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => LoanDetailScreen(loan: loan),
+                               builder: (context) => LoanViewOnlyScreen(loan: loan), // ✅ Actualizado
                             ),
                           );
-                          if (result == true) {
+                          if (result == true && mounted) {
                             _loadClientLoans();
                           }
                         },

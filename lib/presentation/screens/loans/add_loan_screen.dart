@@ -117,7 +117,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     });
   }
 
-  Future<void> _saveLoan() async {
+ Future<void> _saveLoan() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
@@ -143,10 +143,11 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         double interestRateDecimal = double.parse(_interestRateController.text) / 100;
 
         // 3. Crear el objeto Loan usando el ID y el NOMBRE del cliente
+        // ✅ ELIMINAMOS LAS VARIABLES CON ERROR y permitimos que el modelo calcule los valores
         final newLoan = LoanModel(
           id: const Uuid().v4(),
           clientId: newClient.id,
-          clientName: newClient.name, // NUEVO: guardar el nombre del cliente
+          clientName: newClient.name,
           amount: parsedAmount,
           interestRate: interestRateDecimal,
           termValue: int.parse(_termValueController.text),

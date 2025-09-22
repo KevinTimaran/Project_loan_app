@@ -1,5 +1,3 @@
-// lib/presentation/screens/loans/loan_form_screen.dart
-
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +8,7 @@ import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
+import 'package:loan_app/presentation/screens/loans/loan_edit_screen.dart'; // ✅ Importación agregada
 
 class LoanFormScreen extends StatefulWidget {
   final LoanModel? loan;
@@ -48,7 +47,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   List<DateTime> _paymentDates = [];
 
   // Schedule: cada entrada almacena montos en CENTAVOS (int)
-  // keys: paymentCents, interestCents, principalCents, remainingCents, date, index
   List<Map<String, dynamic>> _amortizationSchedule = [];
 
   @override
@@ -138,7 +136,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     }
   }
 
-  // Helper: retorna número de periodos por año según la frecuencia
   int _periodsPerYearForFrequency(String freq) {
     switch (freq) {
       case 'Diario':
@@ -153,7 +150,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     }
   }
 
-  // Helper: suma meses de forma segura (evita overflow de día cuando el mes destino tiene menos días)
   DateTime addMonthsSafe(DateTime date, int monthsToAdd) {
     int year = date.year;
     int month = date.month + monthsToAdd;
@@ -165,12 +161,11 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
   }
 
-  // ======= Helper central: genera el schedule con interés simple (trabaja en CENTAVOS) =======
   List<Map<String, dynamic>> buildSimpleInterestSchedule({
-    required double principal,          // en pesos (ej. 3333333.0)
-    required double annualRatePercent,  // ej. 24 (no decimal)
+    required double principal,
+    required double annualRatePercent,
     required int numberOfPayments,
-    required String frequency,          // 'Diario','Semanal','Quincenal','Mensual'
+    required String frequency,
     required DateTime startDate,
   }) {
     int periodsPerYear;
@@ -185,13 +180,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     final double annualRate = annualRatePercent / 100.0;
     final double timeInYears = numberOfPayments / periodsPerYear;
 
-    // Trabajar en centavos (int) para evitar floats
     final int principalCents = (principal * 100).round();
-
-    // total de interés en centavos
     final int totalInterestCents = (principalCents * annualRate * timeInYears).round();
 
-    // repartir en partes iguales y calcular restos
     final int principalPerPaymentCents = principalCents ~/ numberOfPayments;
     final int interestPerPaymentCents = totalInterestCents ~/ numberOfPayments;
     final int principalRemainder = principalCents - (principalPerPaymentCents * numberOfPayments);
@@ -214,7 +205,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       int principalPortionCents = principalPerPaymentCents;
       int interestPortionCents = interestPerPaymentCents;
 
-      // en la última cuota añadimos los restos para que cuadre todo
       if (i == numberOfPayments - 1) {
         principalPortionCents += principalRemainder;
         interestPortionCents += interestRemainder;
@@ -236,8 +226,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return schedule;
   }
 
-  // ======= Lógica: usa el schedule central para setear estados visibles =======
-  // NO cambies la firma de la función (se solicita mantenerla)
   void _calculateLoanDetails(double amount, double interestRate, int termValue) {
     final int n = termValue;
     if (n <= 0) {
@@ -260,7 +248,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       startDate: _startDate,
     );
 
-    // calcular totales en centavos
     final int totalInterestCents = schedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
     final int totalPaidCents = schedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
     final List<DateTime> dates = schedule.map((e) => e['date'] as DateTime).toList();
@@ -341,6 +328,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       }
 
       final newLoan = LoanModel(
+        id: const Uuid().v4(), // ✅ Generar ID único
         clientId: clientId!,
         clientName: clientName!,
         amount: double.parse(_amountController.text.replaceAll(',', '')),
@@ -352,8 +340,12 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         termUnit: _termUnit,
         whatsappNumber: whatsappNumber,
         phoneNumber: phoneNumber,
-        payments: [], // Si quieres guardar _amortizationSchedule, adapta LoanModel
+        payments: [],
         remainingBalance: _calculatedTotalToPay,
+        totalPaid: 0,
+        status: 'activo',
+        calculatedPaymentAmount: _calculatedPaymentAmount,
+        totalAmountToPay: _calculatedTotalToPay,
       );
 
       await _loanRepository.addLoan(newLoan);
@@ -373,7 +365,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     }
   }
 
-  // Mostrar modal con simulación (desplegable) — ahora incluye la tarjeta resumen grande arriba
   void _showSimulationModal() {
     final currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
 
@@ -387,9 +378,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
           minChildSize: 0.35,
           maxChildSize: 0.98,
           builder: (_, controller) {
-            // Totales en centavos (si schedule no vacío)
             final int totalInterestCents = _amortizationSchedule.fold<int>(0, (s, e) => s + ((e['interestCents'] as int)));
-            final int totalPaidCents = _amortizationSchedule.fold<int>(0, (s, e) => s + ((e['paymentCents'] as int)));
             final int principalCents = (double.tryParse(_amountController.text.replaceAll(',', '')) != null)
                 ? (double.parse(_amountController.text.replaceAll(',', '')) * 100).round()
                 : 0;
@@ -399,7 +388,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // TARJETA RESUMEN GRANDE (dentro del modal, primero)
                   Card(
                     elevation: 6,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -535,9 +523,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // Nota: la tarjeta resumen grande ya no está aquí; ahora aparece DENTRO del modal de simulación.
-              // Se muestra el formulario normal debajo.
-              // Sección de Datos del Cliente
               const Text(
                 'Datos del Cliente',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -627,7 +612,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
               ),
               const SizedBox(height: 24),
 
-              // Sección de Datos del Préstamo
               const Text(
                 'Datos del Préstamo',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -706,13 +690,11 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 },
               ),
               const SizedBox(height: 24),
-              // fin del formulario
             ],
           ),
         ),
       ),
 
-      // BOTONES FIJOS EN LA PARTE INFERIOR
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -729,6 +711,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ).copyWith(
+                    animationDuration: Duration.zero, // ✅ Evita errores de animación
                   ),
                 ),
               ),
@@ -741,6 +725,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ).copyWith(
+                    animationDuration: Duration.zero, // ✅ Evita errores de animación
                   ),
                 ),
               ),
