@@ -67,19 +67,20 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   }
   
   // ✅ NUEVA FUNCIÓN para abrir la pantalla de edición
- Future<void> _openRegisterPayment(LoanModel loan) async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
-    );
+Future<void> _openRegisterPayment(LoanModel loan) async {
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
+  );
 
-    if (!mounted) return;
-    if (result == true) {
-      setState(() {
-        _loanDetailsFuture = _loadLoanDetails();
-      });
-    }
+  if (!mounted) return;
+  if (result == true) {
+    // ✅ Forzar la recarga de los detalles del préstamo
+    setState(() {
+      _loanDetailsFuture = _loadLoanDetails(); // Esto vuelve a ejecutar el FutureBuilder
+    });
   }
+}
 
   // ❌ ELIMINADA: Ya no se usa _openEditLoan
 

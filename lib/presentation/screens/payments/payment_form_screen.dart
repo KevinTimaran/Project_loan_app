@@ -1,4 +1,3 @@
-// lib/presentation/screens/payments/payment_form_screen.dart
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -199,11 +198,8 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         const SnackBar(content: Text('Pago registrado exitosamente')),
       );
 
-      // Devolver préstamo actualizado
-      Navigator.pop(context, {
-        'refresh': true,
-        'updatedLoan': persisted,
-      });
+      // ✅ Devolver true para indicar que se guardó
+      Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -377,6 +373,9 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                               : const Icon(Icons.save),
                           label: Text(
                               _isLoading ? 'Guardando...' : 'Guardar Pago'),
+                          style: ElevatedButton.styleFrom(
+                            animationDuration: Duration.zero, // ✅ Evita errores de animación
+                          ),
                         ),
                       ),
                   ],
