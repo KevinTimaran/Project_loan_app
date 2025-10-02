@@ -1,3 +1,10 @@
+//#################################################
+//#  Pantalla de Vista Detallada del Préstamo    #//
+//#  Muestra detalles completos de un préstamo,   #//
+//#  incluyendo historial de pagos.               #//
+//#  Permite editar si el préstamo está activo.   #//
+//#################################################
+
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';

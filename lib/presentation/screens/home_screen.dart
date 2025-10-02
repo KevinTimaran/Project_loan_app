@@ -1,4 +1,8 @@
-// lib/presentation/screens/home_screen.dart
+//#########################################
+//# esta es la pantalla principal de la app, con busqueda de clientes y acceso a modulos
+//#########################################
+
+
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
@@ -7,9 +11,10 @@ import 'package:loan_app/presentation/screens/clients/client_detail_screen.dart'
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:loan_app/presentation/screens/payments/daily_payments_screen.dart'; // <--- Importación AÑADIDA
+import 'package:loan_app/presentation/screens/payments/daily_payments_screen.dart';
 import 'package:loan_app/presentation/screens/loans/active_loans_screen.dart';
-import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
+import 'package:loan_app/presentation/screens/payments/weekly_payments_screen.dart';
+import 'package:loan_app/presentation/screens/payments/today_collection_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -89,221 +94,300 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    final Color primaryBlue = Theme.of(context).appBarTheme.backgroundColor ?? Colors.blue;
-    final Color mainGreen = const Color(0xFF43A047);
-    final Color textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
-    final Color alertRed = const Color(0xFFE53935);
-    final Color orangeModule = Colors.orange.shade700;
-    final Color purpleModule = Colors.purple.shade700;
+    // ✅ Define TODOS los colores AL PRINCIPIO del build
+    final Color kHeaderColor = const Color(0xFF1E88E5);
+    final Color kPrimaryButtonColor = const Color(0xFF43A047);
+    final Color kTextColor = const Color(0xFF212121);
+    final Color kAlertRed = const Color(0xFFE53935);
+    final Color kOrangeModule = const Color(0xFFFB8C00);
+    final Color kPurpleModule = Colors.purple.shade700;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'LoanApp - Inicio',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-        centerTitle: true,
-        elevation: 0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.cleaning_services),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (ctx) => AlertDialog(
-                  title: const Text('Confirmar Borrado General'),
-                  content: const Text('Esta acción borrará todos los clientes y préstamos. ¿Estás seguro?'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.of(ctx).pop(),
-                      child: const Text('Cancelar'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(ctx).pop();
-                        _clearAllHiveBoxes();
-                      },
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                      child: const Text('Borrar Todo'),
-                    ),
-                  ],
-                ),
-              );
-            },
-            tooltip: 'Borrar todas las bases de datos (solo para pruebas)',
+    return DefaultTabController(
+      length: 3, // Inicio, Cobros, Historial
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: kHeaderColor,
+          title: const Text(
+            'LoanApp',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
           ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              margin: const EdgeInsets.only(bottom: 20),
-              child: Padding(
-                padding: const EdgeInsets.all(20.0),
-                child: Column(
-                  children: [
-                    Text(
-                      'Bienvenido a LoanApp',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: primaryBlue,
+          centerTitle: true,
+          elevation: 0,
+          bottom: TabBar(
+            indicatorColor: Colors.white,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            tabs: const [
+              Tab(text: 'Inicio'),
+              Tab(text: 'Cobros'),
+              Tab(text: 'Historial'),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.cleaning_services, color: Colors.white),
+              onPressed: () {
+                showDialog(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Confirmar Borrado General'),
+                    content: const Text('Esta acción borrará todos los clientes y préstamos. ¿Estás seguro?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.of(ctx).pop(),
+                        child: const Text('Cancelar'),
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      'Gestiona tus préstamos, clientes y pagos de manera eficiente.',
-                      style: TextStyle(fontSize: 16, color: textColor.withOpacity(0.8)),
-                      textAlign: TextAlign.center,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            Padding(
-              padding: const EdgeInsets.only(bottom: 20.0),
-              child: TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  labelText: 'Buscar Cliente rápidamente',
-                  hintText: 'Nombre o ID del cliente',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8.0),
+                      ElevatedButton(
+                        onPressed: () {
+                          Navigator.of(ctx).pop();
+                          _clearAllHiveBoxes();
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: kAlertRed),
+                        child: const Text('Borrar Todo'),
+                      ),
+                    ],
                   ),
-                  suffixIcon: const Icon(Icons.search),
-                ),
-              ),
+                );
+              },
+              tooltip: 'Borrar todas las bases de datos (solo para pruebas)',
             ),
-            
-            if (_foundClients.isNotEmpty)
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _foundClients.length,
-                itemBuilder: (context, index) {
-                  final client = _foundClients[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    child: ListTile(
-                      title: Text('${client.name} ${client.lastName}'),
-                      subtitle: Text('ID: ${client.identification}'),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => ClientDetailScreen(clientId: client.id),
+          ],
+        ),
+        body: TabBarView(
+          children: [
+            // === Pestaña 1: INICIO (Tu pantalla principal) ===
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Card(
+                    elevation: 2,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    margin: const EdgeInsets.only(bottom: 24),
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        children: [
+                          Text(
+                            'Bienvenido a LoanApp',
+                            style: TextStyle(
+                              fontSize: 26,
+                              fontWeight: FontWeight.bold,
+                              color: kHeaderColor,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            'Gestiona tus préstamos, clientes y pagos de manera eficiente y segura.',
+                            style: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.8)),
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      labelText: 'Buscar Cliente',
+                      hintText: 'Nombre o ID',
+                      prefixIcon: Icon(Icons.search, color: kHeaderColor),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                        borderSide: BorderSide(color: kHeaderColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12.0),
+                        borderSide: BorderSide(color: kHeaderColor, width: 2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+
+                  if (_foundClients.isNotEmpty) ...[
+                    Text(
+                      'Resultados de la búsqueda',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor),
+                    ),
+                    const SizedBox(height: 12),
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _foundClients.length,
+                      itemBuilder: (context, index) {
+                        final client = _foundClients[index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 6),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            title: Text(
+                              '${client.name} ${client.lastName}',
+                              style: const TextStyle(fontWeight: FontWeight.w500),
+                            ),
+                            subtitle: Text('ID: ${client.identification}'),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ClientDetailScreen(clientId: client.id),
+                                ),
+                              );
+                            },
                           ),
                         );
                       },
                     ),
-                  );
-                },
-              ),
+                    const SizedBox(height: 24),
+                  ],
 
-            InkWell(
-              onTap: _toggleOptionsExpanded,
-              borderRadius: BorderRadius.circular(8.0),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
-                decoration: BoxDecoration(
-                  color: primaryBlue.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8.0),
-                  border: Border.all(color: primaryBlue.withOpacity(0.3)),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      'Más Opciones',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                        color: primaryBlue,
+                  InkWell(
+                    onTap: _toggleOptionsExpanded,
+                    borderRadius: BorderRadius.circular(12.0),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
+                      decoration: BoxDecoration(
+                        color: kHeaderColor.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(12.0),
+                        border: Border.all(color: kHeaderColor.withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Más Opciones',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w600,
+                              color: kHeaderColor,
+                            ),
+                          ),
+                          RotationTransition(
+                            turns: _arrowAnimation,
+                            child: Icon(Icons.arrow_drop_down, color: kHeaderColor, size: 32),
+                          ),
+                        ],
                       ),
                     ),
-                    RotationTransition(
-                      turns: _arrowAnimation,
-                      child: Icon(Icons.keyboard_arrow_down, color: primaryBlue),
+                  ),
+                  const SizedBox(height: 16),
+
+                  AnimatedCrossFade(
+                    duration: const Duration(milliseconds: 300),
+                    crossFadeState: _isOptionsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                    firstChild: Container(),
+                    secondChild: GridView.count(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                      childAspectRatio: 1.1,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      children: [
+                        _buildFeatureCard(
+                          context,
+                          icon: Icons.attach_money,
+                          title: 'Préstamos',
+                          onTap: () => Navigator.of(context).pushNamed('/loanList'),
+                          iconColor: kPrimaryButtonColor,
+                        ),
+                        _buildFeatureCard(
+                          context,
+                          icon: Icons.people,
+                          title: 'Clientes',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (context) => const ClientListScreen()),
+                          ),
+                          iconColor: kOrangeModule,
+                        ),
+                        _buildFeatureCard(
+                          context,
+                          icon: Icons.payment,
+                          title: 'Registrar Pago',
+                          onTap: () => Navigator.of(context).pushNamed('/addPayment'),
+                          iconColor: kPurpleModule,
+                        ),
+                        _buildFeatureCard(
+                          context,
+                          icon: Icons.calendar_today,
+                          title: 'Pagos del Día',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (context) => const DailyPaymentsScreen()),
+                          ),
+                          iconColor: kHeaderColor,
+                        ),
+                        Card(
+                          elevation: 4,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.all(12),
+                            leading: Icon(Icons.history, color: kHeaderColor),
+                            title: const Text('Historial de Préstamos', textAlign: TextAlign.center),
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
+                  ),
+                ],
+              ),
+            ),
+
+            // === Pestaña 2: COBROS (Con sub-pestañas) ===
+            DefaultTabController(
+              length: 2,
+              child: Scaffold(
+                // Eliminamos el toolbar vacío que dejaba espacio arriba
+                appBar: AppBar(
+                  toolbarHeight: 0,
+                  backgroundColor: Colors.transparent,
+                  elevation: 0,
+                  bottom: TabBar(
+                    indicatorColor: kHeaderColor,
+                    labelColor: kHeaderColor,
+                    unselectedLabelColor: kTextColor.withOpacity(0.7),
+                    tabs: const [
+                      Tab(text: 'Hoy'),
+                      Tab(text: 'Semana'),
+                    ],
+                  ),
+                ),
+                body: TabBarView(
+                  children: [
+                    // --- Cobros Hoy ---
+                    const TodayCollectionScreen(), // ✅ se usa la pantalla real
+
+                    // --- Cobros Semana ---
+                    const WeeklyPaymentsScreen(), // ✅ se usa la pantalla real
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
 
-            AnimatedCrossFade(
-              duration: const Duration(milliseconds: 300),
-              crossFadeState: _isOptionsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-              firstChild: Container(),
-              secondChild: GridView.count(
-                crossAxisCount: 2,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 16,
-                childAspectRatio: 1.2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
+            // === Pestaña 3: HISTORIAL ===
+            Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _buildFeatureCard(
-                    context,
-                    icon: Icons.attach_money,
-                    title: 'Gestión de Préstamos',
-                    onTap: () {
-                      Navigator.of(context).pushNamed('/loanList');
-                    },
-                    iconColor: mainGreen,
+                  const Icon(Icons.history, size: 64, color: Color(0xFF1E88E5)),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Historial completo de préstamos',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor),
+                    textAlign: TextAlign.center,
                   ),
-                  _buildFeatureCard(
-                    context,
-                    icon: Icons.people,
-                    title: 'Gestión de Clientes',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const ClientListScreen()),
-                      );
-                    },
-                    iconColor: orangeModule,
+                  const SizedBox(height: 8),
+                  Text(
+                    'Próximamente: Filtros avanzados y exportación de reportes.',
+                    style: TextStyle(fontSize: 15, color: kTextColor.withOpacity(0.7)),
+                    textAlign: TextAlign.center,
                   ),
-                  _buildFeatureCard(
-                    context,
-                    icon: Icons.payment,
-                    title: 'Registro de Pagos',
-                    onTap: () {
-                      Navigator.of(context).pushNamed('/addPayment');
-                    },
-                    iconColor: purpleModule,
-                  ),
-                  _buildFeatureCard(
-                    context,
-                    icon: Icons.calendar_today,
-                    title: 'Ver Pagos del Día',
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(builder: (context) => const DailyPaymentsScreen()),
-                      );
-                    },
-                    iconColor: Colors.blue.shade700,
-                  ),
-                  Card(
-                    elevation: 4,
-                    child: ListTile(
-                      leading: const Icon(Icons.history, color: Colors.blue),
-                      title: const Text('Ver Historial de Préstamos'),
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),                        );
-                      },
-                    ),
-                  ),
-                
                 ],
               ),
             ),
@@ -320,33 +404,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     required VoidCallback onTap,
     required Color iconColor,
   }) {
-    final Color textColor = Theme.of(context).textTheme.bodyLarge?.color ?? Colors.black;
     return Card(
       elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 50, color: iconColor),
-            const SizedBox(height: 10),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8.0),
-              child: Text(
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 40, color: iconColor),
+              const SizedBox(height: 12),
+              Text(
                 title,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: textColor,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
                 ),
                 textAlign: TextAlign.center,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

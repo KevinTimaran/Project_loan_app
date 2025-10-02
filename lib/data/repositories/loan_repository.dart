@@ -1,3 +1,7 @@
+//#########################################
+//# este code sirve para manejar los prestamos en la app
+//#########################################
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 

@@ -1,4 +1,7 @@
-// lib/data/repositories/payment_repository.dart
+//#########################################
+//# este code sirve para manejar los pagos en la app
+//#########################################
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/domain/entities/payment.dart';
 

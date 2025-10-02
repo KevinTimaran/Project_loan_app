@@ -1,3 +1,10 @@
+//#################################################
+//#  Pantalla de Cobros del Día                    #//
+//#  Muestra pagos realizados en la fecha          #//
+//#  seleccionada (por defecto hoy).               #//
+//#  Incluye resumen y lista detallada.           #//
+//#################################################
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
