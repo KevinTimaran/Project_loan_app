@@ -1,4 +1,6 @@
-// lib/data/repositories/loan_repository_impl.dart
+//#########################################
+//# este code sirve para manejar los prestamos en la app
+//#########################################
 import 'package:hive/hive.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/domain/repositories/i_loan_repository.dart';

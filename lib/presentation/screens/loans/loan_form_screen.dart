@@ -1,3 +1,11 @@
+// lib/presentation/screens/loans/loan_form_screen.dart
+//#################################################
+//#  Pantalla de Formulario de Préstamo           #//
+//#  Permite crear o editar un préstamo,           #//
+//#  seleccionar cliente, ingresar datos y ver    #//
+//#  simulación de pagos.                         #//
+//#################################################
+
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,7 +41,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
 
   String _paymentFrequency = 'Mensual';
   late String _termUnit;
-  final DateTime _startDate = DateTime.now();
+  DateTime _startDate = DateTime.now();
   late DateTime _dueDate;
   Client? _selectedClient;
   List<Client> _clients = [];
@@ -58,6 +66,11 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _amountController.addListener(_updateCalculations);
     _interestRateController.addListener(_updateCalculations);
     _termValueController.addListener(_updateCalculations);
+
+    // Si venimos en modo edición, precargar los valores del préstamo
+    if (widget.loan != null) {
+      _prefillFromLoan(widget.loan!);
+    }
   }
 
   @override
@@ -73,6 +86,68 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _phoneNumberController.dispose();
     _whatsappNumberController.dispose();
     super.dispose();
+  }
+
+  /// Normaliza fecha a 00:00
+  DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  void _prefillFromLoan(LoanModel loan) {
+    // Llenar campos del formulario desde el LoanModel existente
+    _amountController.text = loan.amount.toStringAsFixed(0);
+    // Asumimos que interestRate en el modelo está guardado en decimal (ej 0.05) -> mostramos %
+    _interestRateController.text = (loan.interestRate * 100).toString();
+    _termValueController.text = loan.termValue.toString();
+    _paymentFrequency = loan.paymentFrequency;
+    _setTermUnitBasedOnFrequency();
+    _startDate = loan.startDate;
+    _dueDate = loan.dueDate;
+    _paymentDates = loan.paymentDates ?? [];
+    _calculatedTotalToPay = loan.totalAmountToPay ?? _calculatedTotalToPay;
+    _calculatedPaymentAmount = loan.calculatedPaymentAmount ?? _calculatedPaymentAmount;
+    _calculatedInterest = (loan.totalAmountToPay ?? 0.0) - (loan.amount);
+    _numberOfPayments = loan.termValue;
+    _amortizationSchedule = []; // Será recalculado por _updateCalculations si el usuario modifica
+  }
+
+  Future<void> _loadClients() async {
+    setState(() {
+      _isLoadingClients = true;
+    });
+    try {
+      final loadedClients = await _clientRepository.getClients();
+      setState(() {
+        _clients = loadedClients;
+      });
+
+      // Si estamos en edición, intentar seleccionar el cliente correspondiente
+      if (widget.loan != null && widget.loan!.clientId.isNotEmpty) {
+        final match = _clients.firstWhere(
+          (c) => c.id == widget.loan!.clientId,
+          orElse: () => Client(id: '', name: '', lastName: '', identification: '', phone: '', whatsapp: ''),
+        );
+        if (match.id.isNotEmpty) {
+          setState(() {
+            _selectedClient = match;
+            _clientNameController.text = match.name;
+            _clientLastNameController.text = match.lastName;
+            _phoneNumberController.text = match.phone ?? '';
+            _whatsappNumberController.text = match.whatsapp ?? '';
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al cargar clientes: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoadingClients = false;
+        });
+      }
+    }
   }
 
   void _setTermUnitBasedOnFrequency() {
@@ -93,37 +168,15 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     }
   }
 
-  Future<void> _loadClients() async {
-    setState(() {
-      _isLoadingClients = true;
-    });
-    try {
-      final loadedClients = await _clientRepository.getClients();
-      setState(() {
-        _clients = loadedClients;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar clientes: $e')),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingClients = false;
-        });
-      }
-    }
-  }
-
   void _updateCalculations() {
+    // extraer monto limpio (acepta miles sin comas)
     final amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
-    final interestRate = double.tryParse(_interestRateController.text) ?? 0.0;
+    // interest en % ingresado por el usuario (ej 5 -> 5%)
+    final interestRateInput = double.tryParse(_interestRateController.text) ?? 0.0;
     final termValue = int.tryParse(_termValueController.text) ?? 0;
 
-    if (amount > 0 && interestRate >= 0 && termValue > 0) {
-      _calculateLoanDetails(amount, interestRate, termValue);
+    if (amount > 0 && interestRateInput >= 0 && termValue > 0) {
+      _calculateLoanDetails(amount, interestRateInput, termValue);
     } else {
       setState(() {
         _calculatedInterest = 0.0;
@@ -226,7 +279,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return schedule;
   }
 
-  void _calculateLoanDetails(double amount, double interestRate, int termValue) {
+  void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
     final int n = termValue;
     if (n <= 0) {
       setState(() {
@@ -242,7 +295,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
 
     final schedule = buildSimpleInterestSchedule(
       principal: amount,
-      annualRatePercent: interestRate,
+      annualRatePercent: interestRatePercent,
       numberOfPayments: n,
       frequency: _paymentFrequency,
       startDate: _startDate,
@@ -250,7 +303,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
 
     final int totalInterestCents = schedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
     final int totalPaidCents = schedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
-    final List<DateTime> dates = schedule.map((e) => e['date'] as DateTime).toList();
+    final List<DateTime> dates = schedule.map((e) => _normalizeDate(e['date'] as DateTime)).toList();
 
     setState(() {
       _amortizationSchedule = schedule;
@@ -298,7 +351,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       String? phoneNumber;
       String? whatsappNumber;
 
-      if (_selectedClient != null) {
+      // Si hay cliente seleccionado usamos sus datos, si no creamos nuevo cliente
+      if (_selectedClient != null && _selectedClient!.id.isNotEmpty) {
         clientId = _selectedClient!.id;
         clientName = '${_selectedClient!.name} ${_selectedClient!.lastName}';
         phoneNumber = _selectedClient!.phone;
@@ -320,34 +374,52 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
           clientId = newClient.id;
           clientName = '${newClient.name} ${newClient.lastName}';
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Por favor, selecciona un cliente o ingresa los datos de uno nuevo.')),
-          );
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Por favor, selecciona un cliente o ingresa los datos de uno nuevo.')),
+            );
+          }
           return;
         }
       }
 
+      // Preparar datos del préstamo
+      final double amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
+      final double interestRatePercent = double.tryParse(_interestRateController.text) ?? 0.0;
+      final int termValue = int.tryParse(_termValueController.text) ?? 1;
+
+      // Si todavía no hay schedule calculado (por ejemplo user no modificó después de cargar), calcularlo
+      if (_amortizationSchedule.isEmpty || _paymentDates.isEmpty) {
+        _calculateLoanDetails(amount, interestRatePercent, termValue);
+      }
+
+      // Usamos el mismo id si estamos editando
+      final idToUse = widget.loan?.id ?? const Uuid().v4();
+
       final newLoan = LoanModel(
-        id: const Uuid().v4(), // ✅ Generar ID único
+        id: idToUse,
         clientId: clientId!,
         clientName: clientName!,
-        amount: double.parse(_amountController.text.replaceAll(',', '')),
-        interestRate: double.parse(_interestRateController.text) / 100,
-        termValue: int.parse(_termValueController.text),
+        amount: amount,
+        // guardamos como decimal (0.05) para mantener consistencia con otras partes
+        interestRate: (interestRatePercent / 100),
+        termValue: termValue,
         startDate: _startDate,
         dueDate: _dueDate,
         paymentFrequency: _paymentFrequency,
         termUnit: _termUnit,
         whatsappNumber: whatsappNumber,
         phoneNumber: phoneNumber,
-        payments: [],
+        payments: widget.loan?.payments ?? [],
         remainingBalance: _calculatedTotalToPay,
-        totalPaid: 0,
+        totalPaid: widget.loan?.totalPaid ?? 0.0,
         status: 'activo',
         calculatedPaymentAmount: _calculatedPaymentAmount,
         totalAmountToPay: _calculatedTotalToPay,
+        paymentDates: _paymentDates,
       );
 
+      // Guardar préstamo (addLoan puede crear o sobrescribir según tu implementación)
       await _loanRepository.addLoan(newLoan);
 
       if (mounted) {
@@ -738,6 +810,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   }
 }
 
+/// Formateador simple para el input de monto (miles)
 class CurrencyInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {

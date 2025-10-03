@@ -34,15 +34,16 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       totalAmountToPay: fields[14] as double?,
       calculatedPaymentAmount: fields[15] as double?,
       totalPaid: fields[16] as double,
-      payments: (fields[18] as List?)?.cast<Payment>(),
       remainingBalance: fields[17] as double?,
+      payments: (fields[18] as List?)?.cast<Payment>(),
+      paymentDates: (fields[19] as List?)?.cast<DateTime>(),
     );
   }
 
   @override
   void write(BinaryWriter writer, LoanModel obj) {
     writer
-      ..writeByte(19)
+      ..writeByte(20)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -80,7 +81,9 @@ class LoanModelAdapter extends TypeAdapter<LoanModel> {
       ..writeByte(17)
       ..write(obj.remainingBalance)
       ..writeByte(18)
-      ..write(obj.payments);
+      ..write(obj.payments)
+      ..writeByte(19)
+      ..write(obj.paymentDates);
   }
 
   @override

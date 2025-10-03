@@ -1,4 +1,9 @@
-// lib/presentation/screens/loans/loan_list_screen.dart
+//#################################################
+//#  Pantalla de Lista de Préstamos               #//
+//#  Muestra todos los préstamos con detalles      #//
+//#  clave y opciones para llamar o WhatsApp al    #//
+//#  cliente. Incluye botón para agregar nuevos.   #//
+//#################################################
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';

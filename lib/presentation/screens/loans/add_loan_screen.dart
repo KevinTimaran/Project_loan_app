@@ -1,4 +1,5 @@
 // lib/presentation/screens/loans/add_loan_screen.dart
+// lib/presentation/screens/loans/add_loan_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -50,6 +51,8 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     super.dispose();
   }
 
+  DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
+
   Future<void> _selectDate(BuildContext context, bool isStartDate) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -97,8 +100,8 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
 
   void _updateTermUnitLabel(String? frequency) {
     setState(() {
-      _selectedPaymentFrequency = frequency!;
-      switch (frequency) {
+      _selectedPaymentFrequency = frequency ?? _selectedPaymentFrequency;
+      switch (_selectedPaymentFrequency) {
         case 'Diario':
           _currentTermUnitLabel = 'Días';
           break;
@@ -117,7 +120,75 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     });
   }
 
- Future<void> _saveLoan() async {
+  /// Genera fechas normalizadas y montos de cuotas usando capital fijo + interés sobre saldo.
+  /// Retorna un Map con keys: 'dates' -> List<DateTime>, 'installments' -> List<double>, 'total' -> double
+  Map<String, dynamic> _generateSchedule({
+    required double amount,
+    required double annualRatePercent,
+    required int term,
+    required DateTime startDate,
+    required String frequency, // 'Diario','Semanal','Quincenal','Mensual'
+  }) {
+    final List<DateTime> dates = [];
+    final List<double> installments = [];
+
+    if (term <= 0) {
+      return {'dates': dates, 'installments': installments, 'total': 0.0};
+    }
+
+    // Determinar periodRate y periodDuration aproximado
+    double periodRate;
+    Duration periodDuration;
+
+    switch (frequency) {
+      case 'Diario':
+        periodRate = (annualRatePercent / 100) / 365;
+        periodDuration = const Duration(days: 1);
+        break;
+      case 'Semanal':
+        periodRate = (annualRatePercent / 100) / 52;
+        periodDuration = const Duration(days: 7);
+        break;
+      case 'Quincenal':
+        periodRate = (annualRatePercent / 100) / 24;
+        periodDuration = const Duration(days: 15);
+        break;
+      case 'Mensual':
+      default:
+        periodRate = (annualRatePercent / 100) / 12;
+        // For months we will add months by manipulating DateTime instead of fixed Duration
+        periodDuration = const Duration(days: 30);
+        break;
+    }
+
+    double remaining = amount;
+    final double capitalFixed = amount / term;
+    double totalToPay = 0.0;
+
+    for (int i = 0; i < term; i++) {
+      // Fecha de la cuota
+      DateTime date;
+      if (frequency == 'Mensual') {
+        date = DateTime(startDate.year, startDate.month + i, startDate.day);
+      } else {
+        date = startDate.add(periodDuration * i);
+      }
+      final normalizedDate = _normalizeDate(date);
+      dates.add(normalizedDate);
+
+      // Interés sobre saldo actual
+      final double interest = remaining * periodRate;
+      final double installment = capitalFixed + interest;
+      installments.add(installment);
+
+      totalToPay += installment;
+      remaining -= capitalFixed;
+    }
+
+    return {'dates': dates, 'installments': installments, 'total': totalToPay};
+  }
+
+  Future<void> _saveLoan() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
@@ -127,11 +198,11 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         // 1. Crear un nuevo objeto Client
         final newClient = Client(
           id: const Uuid().v4(),
-          name: _clientNameController.text,
+          name: _clientNameController.text.trim(),
           lastName: '',
           identification: '',
-          phone: _phoneNumberController.text,
-          whatsapp: _whatsappNumberController.text,
+          phone: _phoneNumberController.text.trim(),
+          whatsapp: _whatsappNumberController.text.trim(),
         );
 
         // 2. Guardar el cliente usando el LoanProvider
@@ -140,35 +211,54 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
         final String cleanedAmountText = _amountController.text.replaceAll('\$', '').trim();
         final double parsedAmount = currencyFormatter.parse(cleanedAmountText).toDouble();
-        double interestRateDecimal = double.parse(_interestRateController.text) / 100;
 
-        // 3. Crear el objeto Loan usando el ID y el NOMBRE del cliente
-        // ✅ ELIMINAMOS LAS VARIABLES CON ERROR y permitimos que el modelo calcule los valores
+        final double annualInterestPercent = double.parse(_interestRateController.text);
+        final int term = int.parse(_termValueController.text);
+
+        // 3. Generar schedule (fechas y montos)
+        final schedule = _generateSchedule(
+          amount: parsedAmount,
+          annualRatePercent: annualInterestPercent,
+          term: term,
+          startDate: _normalizeDate(_startDate),
+          frequency: _selectedPaymentFrequency,
+        );
+
+        final List<DateTime> paymentDates = (schedule['dates'] as List<DateTime>).map((d) => _normalizeDate(d)).toList();
+        final List<double> installments = List<double>.from(schedule['installments'] as List);
+        final double totalToPay = schedule['total'] as double;
+        final double calculatedPaymentAmount = installments.isNotEmpty ? installments.first : 0.0;
+
+        // 4. Crear el LoanModel e incluir paymentDates y cálculos
         final newLoan = LoanModel(
           id: const Uuid().v4(),
           clientId: newClient.id,
           clientName: newClient.name,
           amount: parsedAmount,
-          interestRate: interestRateDecimal,
-          termValue: int.parse(_termValueController.text),
-          startDate: _startDate,
-          dueDate: _dueDate,
+          interestRate: annualInterestPercent / 100, // guardamos en decimal (si tu modelo espera decimal)
+          termValue: term,
+          startDate: _normalizeDate(_startDate),
+          dueDate: _normalizeDate(_dueDate),
           status: 'activo',
           paymentFrequency: _selectedPaymentFrequency,
-          whatsappNumber: _whatsappNumberController.text.isEmpty ? null : _whatsappNumberController.text,
-          phoneNumber: _phoneNumberController.text.isEmpty ? null : _phoneNumberController.text,
+          whatsappNumber: _whatsappNumberController.text.isEmpty ? null : _whatsappNumberController.text.trim(),
+          phoneNumber: _phoneNumberController.text.isEmpty ? null : _phoneNumberController.text.trim(),
           termUnit: _currentTermUnitLabel,
+          paymentDates: paymentDates,
+          calculatedPaymentAmount: calculatedPaymentAmount,
+          totalAmountToPay: totalToPay,
+          remainingBalance: parsedAmount,
+          totalPaid: 0.0,
         );
 
-        // 4. Guardar el préstamo
+        // 5. Guardar el préstamo
         await loanProvider.addLoan(newLoan);
 
-        // 5. Mostrar éxito y navegar atrás
+        // 6. Mostrar éxito y navegar atrás
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Préstamo y cliente añadidos con éxito!')),
         );
         Navigator.of(context).pop();
-
       } catch (error) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al añadir préstamo y cliente: $error')),

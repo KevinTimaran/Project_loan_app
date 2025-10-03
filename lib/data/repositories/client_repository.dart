@@ -1,4 +1,6 @@
-// lib/data/repositories/client_repository.dart
+//#########################################
+//# este code sirve para manejar los clientes en la app
+//#########################################
 import 'package:hive/hive.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/repositories/i_client_repository.dart';

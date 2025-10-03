@@ -1,4 +1,9 @@
-// lib/presentation/screens/loans/loan_edit_screen.dart
+//#################################################
+//#  Pantalla de Edición de Préstamo               #//
+//#  Permite modificar los detalles de un préstamo, #//
+//#  recalcular pagos y actualizar la base de datos.#//
+//#  Solo si el préstamo está activo.              #//
+//#################################################
 
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -322,7 +327,8 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
           termUnit: _termUnit,
           remainingBalance: _calculatedTotalToPay - widget.loan.totalPaid,
           calculatedPaymentAmount: _calculatedPaymentAmount,
-          totalAmountToPay: _calculatedTotalToPay
+          totalAmountToPay: _calculatedTotalToPay,
+          paymentDates: _paymentDates,
         );
         
         await _loanRepository.updateLoan(updatedLoan);

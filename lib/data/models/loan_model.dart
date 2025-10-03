@@ -1,150 +1,170 @@
 // lib/data/models/loan_model.dart
-
 import 'package:hive/hive.dart';
-import 'package:uuid/uuid.dart';
 import 'package:loan_app/domain/entities/payment.dart';
-import 'dart:math';
+import 'package:uuid/uuid.dart';
 
 part 'loan_model.g.dart';
 
 @HiveType(typeId: 2)
 class LoanModel extends HiveObject {
+  // === Mantener los mismos índices que tu adapter generado (.g.dart) ===
   @HiveField(0)
-  final String id;
+  late final String id; // ahora no nulo (se garantiza en el constructor)
+
   @HiveField(1)
-  final String clientId;
+  late final String clientId;
+
   @HiveField(2)
-  final String clientName;
+  late final String clientName;
+
   @HiveField(3)
-  final double amount;
+  late final double amount;
+
   @HiveField(4)
-  final double interestRate;
+  late final double interestRate;
+
   @HiveField(5)
-  final int termValue;
+  late final int termValue;
+
   @HiveField(6)
-  final DateTime startDate;
+  late final DateTime startDate;
+
   @HiveField(7)
-  final DateTime dueDate;
+  late final DateTime dueDate;
+
   @HiveField(8)
-  String status;
+  late String status;
+
   @HiveField(9)
-  final String paymentFrequency;
+  late final String paymentFrequency;
+
   @HiveField(10)
-  final String? whatsappNumber;
+  String? whatsappNumber;
+
   @HiveField(11)
-  final String? phoneNumber;
+  String? phoneNumber;
+
   @HiveField(12)
-  final String termUnit;
+  late final String termUnit;
+
   @HiveField(13)
-  final int loanNumber;
+  int? loanNumber;
+
   @HiveField(14)
-  final double totalAmountToPay;
+  double? totalAmountToPay;
+
   @HiveField(15)
-  final double calculatedPaymentAmount;
+  double? calculatedPaymentAmount;
+
   @HiveField(16)
-  double totalPaid;
+  late double totalPaid;
+
+  // NOTE: el índice 17 en tu adapter era remainingBalance
   @HiveField(17)
-  double remainingBalance;
+  late double remainingBalance;
+
+  // payments en la posición 18 (lo dejamos no nulo en runtime)
   @HiveField(18)
-  List<Payment> payments;
+  late List<Payment> payments;
+
+  // paymentDates en la posición 19 (no nulo en runtime)
+  @HiveField(19)
+  late List<DateTime> paymentDates;
 
   LoanModel({
     String? id,
-    required this.clientId,
-    required this.clientName,
-    required this.amount,
-    required this.interestRate,
-    required this.termValue,
-    required this.startDate,
-    required this.dueDate,
-    this.status = 'activo',
-    this.paymentFrequency = 'Mensual',
-    this.whatsappNumber,
-    this.phoneNumber,
-    this.termUnit = 'Meses',
-    int? loanNumber,
-    double? totalAmountToPay, // ✅ Now an optional named parameter
-    double? calculatedPaymentAmount, // ✅ Now an optional named parameter
-    this.totalPaid = 0.0,
-    List<Payment>? payments,
-    double? remainingBalance,
-  })  : id = id ?? const Uuid().v4(),
-        loanNumber = loanNumber ?? const Uuid().v4().hashCode.abs() % 100000,
-        payments = payments ?? [],
-        totalAmountToPay = totalAmountToPay ?? _calculateTotalAmountToPay(
-          amount: amount,
-          interestRate: interestRate,
-          termValue: termValue,
-          paymentFrequency: paymentFrequency,
-        ),
-        calculatedPaymentAmount = calculatedPaymentAmount ?? _calculatePaymentAmount(
-          amount: amount,
-          interestRate: interestRate,
-          termValue: termValue,
-          paymentFrequency: paymentFrequency,
-        ),
-        remainingBalance = remainingBalance ?? totalAmountToPay ?? _calculateTotalAmountToPay(
-          amount: amount,
-          interestRate: interestRate,
-          termValue: termValue,
-          paymentFrequency: paymentFrequency,
-        );
-
-  // Helper methods to calculate loan details
-  static double _calculatePeriodInterestRate({
+    required String clientId,
+    required String clientName,
+    required double amount,
     required double interestRate,
+    required int termValue,
+    required DateTime startDate,
+    required DateTime dueDate,
+    String status = 'activo',
     required String paymentFrequency,
-  }) {
-    switch (paymentFrequency) {
-      case 'Diario':
-        return interestRate / 365;
-      case 'Semanal':
-        return interestRate / 52;
-      case 'Quincenal':
-        return interestRate / 24;
-      case 'Mensual':
-      default:
-        return interestRate / 12;
+    String? whatsappNumber,
+    String? phoneNumber,
+    required String termUnit,
+    int? loanNumber,
+    double? totalAmountToPay,
+    double? calculatedPaymentAmount,
+    double totalPaid = 0.0,
+    double? remainingBalance,
+    List<Payment>? payments,
+    List<DateTime>? paymentDates,
+  })  : id = id == null || id.isEmpty ? const Uuid().v4() : id,
+        clientId = clientId,
+        clientName = clientName,
+        amount = amount,
+        interestRate = interestRate,
+        termValue = termValue,
+        startDate = startDate,
+        dueDate = dueDate,
+        status = status,
+        paymentFrequency = paymentFrequency,
+        whatsappNumber = whatsappNumber,
+        phoneNumber = phoneNumber,
+        termUnit = termUnit,
+        loanNumber = loanNumber,
+        totalAmountToPay = totalAmountToPay,
+        calculatedPaymentAmount = calculatedPaymentAmount,
+        totalPaid = totalPaid,
+        remainingBalance = remainingBalance ?? (totalAmountToPay ?? amount),
+        payments = payments ?? <Payment>[],
+        paymentDates = (paymentDates ?? <DateTime>[]).map((d) => DateTime(d.year, d.month, d.day)).toList();
+
+  /// Comprueba si ya está totalmente pagado
+  bool get isFullyPaid {
+    // Si totalAmountToPay está definido, compararlo con totalPaid
+    if (totalAmountToPay != null) {
+      return totalPaid >= totalAmountToPay!;
+    }
+    // Si no, comparar remainingBalance
+    return remainingBalance <= 0.0;
+  }
+
+  /// Devuelve una versión corta del id (5 dígitos o menos) para UI
+  String get shortId {
+    // Extrae solo dígitos y toma últimos/primeros según prefieras
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return id.length <= 5 ? id : id.substring(0, 5);
+    }
+    return digits.length <= 5 ? digits : digits.substring(digits.length - 5);
+  }
+
+  /// Registra un pago en el préstamo (actualiza listas y saldos).
+  /// No es async: actualiza campos en memoria; si quieres persistir, llama a save() en el LoanModel (HiveObject).
+  void registerPayment(Payment payment) {
+    payments.add(payment);
+    totalPaid = (totalPaid) + payment.amount;
+    remainingBalance = (remainingBalance - payment.amount).clamp(0.0, double.infinity);
+    if (remainingBalance <= 0.0) {
+      status = 'pagado';
+    }
+    // opcional: persistir automáticamente
+    try {
+      save();
+    } catch (_) {
+      // Si no puedes salvar (p. ej. antes de estar en Hive), se ignora silenciosamente:
+      // el caller puede decidir persistir usando LoanRepository/LoanProvider.
     }
   }
 
-  static double _calculatePaymentAmount({
-    required double amount,
-    required double interestRate,
-    required int termValue,
-    required String paymentFrequency,
-  }) {
-    final double rate = _calculatePeriodInterestRate(
-      interestRate: interestRate,
-      paymentFrequency: paymentFrequency,
-    );
-    final int n = termValue;
-    if (n == 0) return 0.0;
-    if (rate == 0) return amount / n;
-    
-    // Simple interest calculation based on your other code
-    final double totalInterest = amount * rate * n;
-    final double totalPayment = amount + totalInterest;
-    return totalPayment / n;
+  /// Actualiza el estado (y persiste tente si es posible)
+  void updateStatus(String newStatus) {
+    status = newStatus;
+    try {
+      save();
+    } catch (_) {}
   }
 
-  static double _calculateTotalAmountToPay({
-    required double amount,
-    required double interestRate,
-    required int termValue,
-    required String paymentFrequency,
-  }) {
-    final double paymentAmount = _calculatePaymentAmount(
-      amount: amount,
-      interestRate: interestRate,
-      termValue: termValue,
-      paymentFrequency: paymentFrequency,
-    );
-    return paymentAmount * termValue;
+  /// Normaliza paymentDates a 00:00 por seguridad (útil en migraciones)
+  void normalizePaymentDatesIfNeeded() {
+    paymentDates = paymentDates.map((d) => DateTime(d.year, d.month, d.day)).toList();
   }
 
-  bool get isFullyPaid => status == 'pagado';
-
+  /// Copia con override de campos (útil en ediciones)
   LoanModel copyWith({
     String? id,
     String? clientId,
@@ -152,10 +172,10 @@ class LoanModel extends HiveObject {
     double? amount,
     double? interestRate,
     int? termValue,
-    String? paymentFrequency,
     DateTime? startDate,
     DateTime? dueDate,
     String? status,
+    String? paymentFrequency,
     String? whatsappNumber,
     String? phoneNumber,
     String? termUnit,
@@ -165,6 +185,7 @@ class LoanModel extends HiveObject {
     double? totalPaid,
     double? remainingBalance,
     List<Payment>? payments,
+    List<DateTime>? paymentDates,
   }) {
     return LoanModel(
       id: id ?? this.id,
@@ -173,10 +194,10 @@ class LoanModel extends HiveObject {
       amount: amount ?? this.amount,
       interestRate: interestRate ?? this.interestRate,
       termValue: termValue ?? this.termValue,
-      paymentFrequency: paymentFrequency ?? this.paymentFrequency,
       startDate: startDate ?? this.startDate,
       dueDate: dueDate ?? this.dueDate,
       status: status ?? this.status,
+      paymentFrequency: paymentFrequency ?? this.paymentFrequency,
       whatsappNumber: whatsappNumber ?? this.whatsappNumber,
       phoneNumber: phoneNumber ?? this.phoneNumber,
       termUnit: termUnit ?? this.termUnit,
@@ -184,25 +205,14 @@ class LoanModel extends HiveObject {
       totalAmountToPay: totalAmountToPay ?? this.totalAmountToPay,
       calculatedPaymentAmount: calculatedPaymentAmount ?? this.calculatedPaymentAmount,
       totalPaid: totalPaid ?? this.totalPaid,
-      payments: payments ?? this.payments,
       remainingBalance: remainingBalance ?? this.remainingBalance,
+      payments: payments ?? this.payments,
+      paymentDates: paymentDates ?? this.paymentDates,
     );
   }
 
-  void updateStatus(String newStatus) {
-    status = newStatus;
-    save();
-  }
-
-  void registerPayment(Payment newPayment) {
-    payments.add(newPayment);
-    totalPaid += newPayment.amount;
-    remainingBalance = totalAmountToPay - totalPaid;
-
-    if (remainingBalance <= 0) {
-      status = 'pagado';
-    }
-
-    save();
+  @override
+  String toString() {
+    return 'LoanModel(id: $id, clientId: $clientId, clientName: $clientName, amount: $amount, remaining: $remainingBalance, payments: ${payments.length}, paymentDates: ${paymentDates.length})';
   }
 }

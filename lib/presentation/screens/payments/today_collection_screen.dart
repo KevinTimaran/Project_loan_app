@@ -48,62 +48,93 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
   DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
 
   Future<void> _loadDailyLoans() async {
-    setState(() {
-      _isLoading = true;
-      _dailyLoans = [];
-      _clientNamesMap.clear();
-      _loadErrorMessage = null;
-    });
+  setState(() {
+    _isLoading = true;
+    _dailyLoans = [];
+    _clientNamesMap.clear();
+    _loadErrorMessage = null;
+  });
 
-    try {
-      final allLoans = await _loanRepository.getAllLoans();
-
-      // Rango del día: [startOfDay, startOfNextDay)
-      final startOfDay = _normalizeDate(_selectedDate);
-      final startOfNextDay = startOfDay.add(const Duration(days: 1));
-
-      final dailyLoans = allLoans.where((loan) {
-        final due = loan.dueDate;
-        if (due == null) return false;
-        return loan.status == 'activo' &&
-            !due.isBefore(startOfDay) && // due >= startOfDay
-            due.isBefore(startOfNextDay); // due < startOfNextDay
-      }).toList();
-
-      // Cargar nombres de clientes (paralelo, con tolerancia a fallos)
-      final futures = dailyLoans.map((loan) async {
-        try {
-          final client = await _clientRepository.getClientById(loan.clientId);
-          final key = loan.clientId?.toString() ?? '';
-          final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
-          _clientNamesMap[key] = name.isNotEmpty ? name : 'Cliente desconocido';
-        } catch (_) {
-          final key = loan.clientId?.toString() ?? '';
-          _clientNamesMap[key] = 'Cliente desconocido';
-        }
-      }).toList();
-
-      await Future.wait(futures);
-
+  try {
+    final allLoans = await _loanRepository.getAllLoans();
+    if (allLoans == null || allLoans.isEmpty) {
       if (!mounted) return;
       setState(() {
-        _dailyLoans = dailyLoans;
+        _dailyLoans = [];
         _isLoading = false;
       });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _loadErrorMessage = 'Error al cargar los préstamos: $e';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_loadErrorMessage!)));
+      return;
     }
-  }
 
-  /// Formatea/normaliza un ID para presentarlo como número de 5 dígitos.
-  /// - Si puede parsearse como entero: lo rellena con ceros a la izquierda.
-  /// - Si es mayor a 99999, muestra los últimos 5 dígitos (decisión de UX).
-  /// - Si no es numérico, extrae dígitos y los normaliza; si no hay dígitos, usa fallback.
+    final startOfDay = _normalizeDate(_selectedDate);
+
+    final dailyLoans = <LoanModel>[];
+    for (final loan in allLoans) {
+      try {
+        if (loan == null) continue;
+        if (loan.status != 'activo') continue;
+
+        // 1) Si paymentDates existe, comprobar si contiene la fecha
+        final paymentDates = loan.paymentDates;
+        bool hasToday = false;
+        if (paymentDates != null && paymentDates.isNotEmpty) {
+          hasToday = paymentDates.any((pd) {
+            if (pd == null) return false;
+            final normalized = _normalizeDate(pd);
+            return normalized == startOfDay;
+          });
+        } else {
+          // 2) Fallback: si no hay paymentDates, comparar dueDate (comportamiento previo)
+          final due = loan.dueDate;
+          if (due != null) {
+            hasToday = _normalizeDate(due) == startOfDay;
+          }
+        }
+
+        if (hasToday) dailyLoans.add(loan);
+      } catch (_) {
+        // ignorar préstamos malformados
+        continue;
+      }
+    }
+
+    // cargar clientes (una llamada por clientId único)
+    final uniqueClientIds = <String>{};
+    for (final loan in dailyLoans) {
+      final cid = loan.clientId?.toString() ?? '';
+      if (cid.isNotEmpty) uniqueClientIds.add(cid);
+    }
+
+    final clientFutures = uniqueClientIds.map((cid) async {
+      try {
+        final client = await _clientRepository.getClientById(cid);
+        final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
+        return MapEntry(cid, name.isNotEmpty ? name : 'Cliente desconocido');
+      } catch (_) {
+        return MapEntry(cid, 'Cliente desconocido');
+      }
+    }).toList();
+
+    final clientEntries = await Future.wait(clientFutures);
+    for (final entry in clientEntries) _clientNamesMap[entry.key] = entry.value;
+
+    if (!mounted) return;
+    setState(() {
+      _dailyLoans = dailyLoans;
+      _isLoading = false;
+    });
+  } catch (e) {
+    if (!mounted) return;
+    setState(() {
+      _isLoading = false;
+      _loadErrorMessage = 'Error al cargar los préstamos: $e';
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_loadErrorMessage!)));
+  }
+}
+
+
+  /// Formatea un ID en 5 dígitos
   String _formatIdAsFiveDigits(dynamic rawId) {
     if (rawId == null) return ''.padLeft(_expectedIdDigits, '0');
     final rawString = rawId.toString();
@@ -153,7 +184,6 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Widget _buildHeader(BuildContext context) {
     final dateLabel = _dateFormatter.format(_selectedDate);
-
     final totalAmount = _dailyLoans.fold<double>(0.0, (sum, loan) => sum + (loan.remainingBalance ?? 0.0));
 
     return Padding(

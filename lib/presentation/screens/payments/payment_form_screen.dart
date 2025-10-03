@@ -1,3 +1,4 @@
+// lib/presentation/screens/payments/payment_form_screen.dart
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -12,7 +13,6 @@ import 'package:intl/intl.dart';
 class PaymentFormScreen extends StatefulWidget {
   final LoanModel? loan;
   const PaymentFormScreen({super.key, this.loan});
-
   @override
   State<PaymentFormScreen> createState() => _PaymentFormScreenState();
 }
@@ -48,8 +48,8 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
           Navigator.pop(context);
         });
       } else {
-        final remainingPesos = _selectedLoan!.remainingBalance.round();
-        final cuotaPesos = _selectedLoan!.calculatedPaymentAmount.round();
+        final remainingPesos = (_selectedLoan!.remainingBalance ?? 0).round();
+        final cuotaPesos = (_selectedLoan!.calculatedPaymentAmount ?? 0).round();
         final expected = remainingPesos < cuotaPesos ? remainingPesos : cuotaPesos;
         _expectedPaymentAmount = expected.toDouble();
         _amountController.text = NumberFormat.decimalPattern('es_CO').format(expected);
@@ -163,7 +163,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         return;
       }
 
-      final remainingPesos = _selectedLoan!.remainingBalance.round();
+      final remainingPesos = (_selectedLoan!.remainingBalance ?? 0).round();
       if (amountPesos > remainingPesos) {
         final formattedRemaining = NumberFormat.decimalPattern('es_CO').format(remainingPesos);
         if (mounted) {
@@ -175,9 +175,11 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         return;
       }
 
+      final loanIdToUse = _selectedLoan!.id ?? const Uuid().v4();
+
       final newPayment = Payment(
         id: const Uuid().v4(),
-        loanId: _selectedLoan!.id,
+        loanId: loanIdToUse,
         amount: amountPesos.toDouble(),
         date: _selectedDate,
       );
@@ -190,8 +192,10 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
       await _loanRepository.updateLoan(_selectedLoan!);
 
       // Confirmar leyendo desde Hive
-      final persisted = await _loanRepository.getLoanById(_selectedLoan!.id);
-      print('>>> Pago guardado. loanId=${persisted?.id} remaining=${persisted?.remainingBalance} payments=${persisted?.payments?.length}');
+    final persisted = await _loanRepositoryGetter(_selectedLoan!.id);
+    print(
+        '>>> Pago guardado. loanId=${persisted?.id} remaining=${persisted?.remainingBalance} payments=${persisted?.payments?.length ?? 0}');
+
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -211,12 +215,24 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     }
   }
 
+  // Helper para acceder al repositorio con seguridad (evita errores de tipo)
+  Future<LoanModel?> _loanRepositoryGetter(String? id) async {
+  if (id == null || id.isEmpty) return null;
+  try {
+    return await _loanRepository.getLoanById(id);
+  } catch (_) {
+    return null;
+  }
+}
+
+
   String _formatLoanDisplayText(LoanModel loan) {
-    final shortId = loan.id.length > 4 ? loan.id.substring(0, 4) : loan.id;
+    final idSafe = loan.id ?? '';
+    final shortId = idSafe.length > 4 ? idSafe.substring(0, 4) : idSafe;
     final cuota = NumberFormat.currency(locale: 'es_CO', symbol: r'$', decimalDigits: 0)
-        .format(loan.calculatedPaymentAmount.round());
+        .format((loan.calculatedPaymentAmount ?? 0).round());
     final saldo = NumberFormat.currency(locale: 'es_CO', symbol: r'$', decimalDigits: 0)
-        .format(loan.remainingBalance.round());
+        .format((loan.remainingBalance ?? 0).round());
     return 'Préstamo #$shortId - Cuota: $cuota - Saldo: $saldo';
   }
 
@@ -280,17 +296,11 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                                 if (loan != null) {
                                   setState(() {
                                     _selectedLoan = loan;
-                                    final remainingPesos =
-                                        loan.remainingBalance.round();
-                                    final cuotaPesos =
-                                        loan.calculatedPaymentAmount.round();
-                                    final expected = remainingPesos < cuotaPesos
-                                        ? remainingPesos
-                                        : cuotaPesos;
-                                    _expectedPaymentAmount =
-                                        expected.toDouble();
-                                    _amountController.text =
-                                        currencyFormatter.format(expected);
+                                    final remainingPesos = (loan.remainingBalance ?? 0).round();
+                                    final cuotaPesos = (loan.calculatedPaymentAmount ?? 0).round();
+                                    final expected = remainingPesos < cuotaPesos ? remainingPesos : cuotaPesos;
+                                    _expectedPaymentAmount = expected.toDouble();
+                                    _amountController.text = currencyFormatter.format(expected);
                                   });
                                 }
                               },
@@ -329,7 +339,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                       controller: _amountController,
                       decoration: InputDecoration(
                         labelText: _selectedLoan != null
-                            ? 'Monto del Pago (Cuota: \$${currencyFormatter.format(_selectedLoan!.calculatedPaymentAmount.round())} - Saldo: \$${currencyFormatter.format(_selectedLoan!.remainingBalance.round())})'
+                            ? 'Monto del Pago (Cuota: \$${NumberFormat.decimalPattern('es_CO').format(((_selectedLoan?.calculatedPaymentAmount ?? 0).round()))} - Saldo: \$${NumberFormat.decimalPattern('es_CO').format(((_selectedLoan?.remainingBalance ?? 0).round()))})'
                             : 'Monto del Pago',
                         border: const OutlineInputBorder(),
                         prefixText: '\$',
@@ -349,8 +359,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                           return 'El monto debe ser mayor a cero.';
                         }
                         if (_selectedLoan != null) {
-                          final remainingPesos =
-                              _selectedLoan!.remainingBalance.round();
+                          final remainingPesos = (_selectedLoan!.remainingBalance ?? 0).round();
                           if (amountPesos > remainingPesos) {
                             return 'El monto no puede ser mayor al saldo pendiente.';
                           }
@@ -359,7 +368,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                       },
                     ),
                     const SizedBox(height: 24),
-                    if (_selectedLoan == null || !_selectedLoan!.isFullyPaid)
+                    if (_selectedLoan == null || !(_selectedLoan!.isFullyPaid))
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
