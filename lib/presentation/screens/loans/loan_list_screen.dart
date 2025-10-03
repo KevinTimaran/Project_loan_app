@@ -1,15 +1,7 @@
-//#################################################
-//#  Pantalla de Lista de Préstamos               #//
-//#  Muestra todos los préstamos con detalles      #//
-//#  clave y opciones para llamar o WhatsApp al    #//
-//#  cliente. Incluye botón para agregar nuevos.   #//
-//#################################################
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/presentation/providers/loan_provider.dart';
-import 'package:loan_app/presentation/screens/loans/add_loan_screen.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
 import 'package:hive/hive.dart';
@@ -81,6 +73,7 @@ class _LoanListScreenState extends State<LoanListScreen> {
     if (await canLaunchUrl(whatsappUri)) {
       await launchUrl(whatsappUri);
     } else {
+      // ✅ URL CORREGIDA: Sin espacios en blanco
       final Uri webWhatsappUri = Uri.parse('https://wa.me/$whatsappNumber');
       if (await canLaunchUrl(webWhatsappUri)) {
         await launchUrl(webWhatsappUri, mode: LaunchMode.externalApplication);
@@ -173,7 +166,11 @@ class _LoanListScreenState extends State<LoanListScreen> {
               ),
             );
           }
-          if (loanProvider.loans.isEmpty) {
+
+          // ✅ Filtrar solo préstamos con saldo pendiente > 0
+          final activeLoans = loanProvider.loans.where((loan) => loan.remainingBalance > 0).toList();
+
+          if (activeLoans.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -181,7 +178,7 @@ class _LoanListScreenState extends State<LoanListScreen> {
                   Icon(Icons.money_off, size: 80, color: iconColor.withOpacity(0.5)),
                   const SizedBox(height: 16),
                   Text(
-                    'No hay préstamos registrados.\n¡Agrega el primero!',
+                    'No hay préstamos activos.\n¡Agrega el primero!',
                     style: TextStyle(fontSize: 16, color: textColor.withOpacity(0.7)),
                     textAlign: TextAlign.center,
                   ),
@@ -191,9 +188,9 @@ class _LoanListScreenState extends State<LoanListScreen> {
           }
 
           return ListView.builder(
-            itemCount: loanProvider.loans.length,
+            itemCount: activeLoans.length,
             itemBuilder: (context, index) {
-              final loan = loanProvider.loans[index];
+              final loan = activeLoans[index];
               final bool isEvenRow = index % 2 == 0;
               final Color rowBackgroundColor = isEvenRow ? Colors.white : alternateRowColor;
 

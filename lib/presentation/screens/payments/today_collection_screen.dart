@@ -48,116 +48,111 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
   DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
 
   Future<void> _loadDailyLoans() async {
-  setState(() {
-    _isLoading = true;
-    _dailyLoans = [];
-    _clientNamesMap.clear();
-    _loadErrorMessage = null;
-  });
+    setState(() {
+      _isLoading = true;
+      _dailyLoans = [];
+      _clientNamesMap.clear();
+      _loadErrorMessage = null;
+    });
 
-  try {
-    final allLoans = await _loanRepository.getAllLoans();
-    if (allLoans == null || allLoans.isEmpty) {
+    try {
+      final allLoans = await _loanRepository.getAllLoans();
+      if (allLoans == null || allLoans.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _dailyLoans = [];
+          _isLoading = false;
+        });
+        return;
+      }
+
+      final startOfDay = _normalizeDate(_selectedDate);
+
+      final dailyLoans = <LoanModel>[];
+      for (final loan in allLoans) {
+        try {
+          if (loan == null) continue;
+          // 👇 CORRECCIÓN LÓGICA 1: Excluir solo estados no cobrables
+          if (loan.status == 'pagado' || loan.status == 'cancelado') continue;
+
+          bool hasToday = false;
+
+          // 👇 CORRECCIÓN LÓGICA 2: Unificar lógica de fechas
+          final paymentDates = loan.paymentDates;
+          if (paymentDates != null) {
+            hasToday = paymentDates.any((pd) {
+              if (pd == null) return false;
+              return _normalizeDate(pd) == startOfDay;
+            });
+          }
+
+          // Usar dueDate como fallback si aún no se encontró la fecha
+          if (!hasToday && loan.dueDate != null) {
+            hasToday = _normalizeDate(loan.dueDate!) == startOfDay;
+          }
+
+          if (hasToday) {
+            dailyLoans.add(loan);
+          }
+        } catch (_) {
+          continue;
+        }
+      }
+
+      // cargar clientes (una llamada por clientId único)
+      final uniqueClientIds = <String>{};
+      for (final loan in dailyLoans) {
+        final cid = loan.clientId?.toString() ?? '';
+        if (cid.isNotEmpty) uniqueClientIds.add(cid);
+      }
+
+      final clientFutures = uniqueClientIds.map((cid) async {
+        try {
+          final client = await _clientRepository.getClientById(cid);
+          final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
+          return MapEntry(cid, name.isNotEmpty ? name : 'Cliente desconocido');
+        } catch (_) {
+          return MapEntry(cid, 'Cliente desconocido');
+        }
+      }).toList();
+
+      final clientEntries = await Future.wait(clientFutures);
+      for (final entry in clientEntries) _clientNamesMap[entry.key] = entry.value;
+
       if (!mounted) return;
       setState(() {
-        _dailyLoans = [];
+        _dailyLoans = dailyLoans;
         _isLoading = false;
       });
-      return;
+    } catch (e) {
+      if (!mounted) return;
+      // 👇 CORRECCIÓN LÓGICA 5: Usar variable local para evitar ! en null
+      final errorMessage = 'Error al cargar los préstamos: $e';
+      setState(() {
+        _isLoading = false;
+        _loadErrorMessage = errorMessage;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
     }
-
-    final startOfDay = _normalizeDate(_selectedDate);
-
-    final dailyLoans = <LoanModel>[];
-    for (final loan in allLoans) {
-      try {
-        if (loan == null) continue;
-        if (loan.status != 'activo') continue;
-
-        // 1) Si paymentDates existe, comprobar si contiene la fecha
-        final paymentDates = loan.paymentDates;
-        bool hasToday = false;
-        if (paymentDates != null && paymentDates.isNotEmpty) {
-          hasToday = paymentDates.any((pd) {
-            if (pd == null) return false;
-            final normalized = _normalizeDate(pd);
-            return normalized == startOfDay;
-          });
-        } else {
-          // 2) Fallback: si no hay paymentDates, comparar dueDate (comportamiento previo)
-          final due = loan.dueDate;
-          if (due != null) {
-            hasToday = _normalizeDate(due) == startOfDay;
-          }
-        }
-
-        if (hasToday) dailyLoans.add(loan);
-      } catch (_) {
-        // ignorar préstamos malformados
-        continue;
-      }
-    }
-
-    // cargar clientes (una llamada por clientId único)
-    final uniqueClientIds = <String>{};
-    for (final loan in dailyLoans) {
-      final cid = loan.clientId?.toString() ?? '';
-      if (cid.isNotEmpty) uniqueClientIds.add(cid);
-    }
-
-    final clientFutures = uniqueClientIds.map((cid) async {
-      try {
-        final client = await _clientRepository.getClientById(cid);
-        final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
-        return MapEntry(cid, name.isNotEmpty ? name : 'Cliente desconocido');
-      } catch (_) {
-        return MapEntry(cid, 'Cliente desconocido');
-      }
-    }).toList();
-
-    final clientEntries = await Future.wait(clientFutures);
-    for (final entry in clientEntries) _clientNamesMap[entry.key] = entry.value;
-
-    if (!mounted) return;
-    setState(() {
-      _dailyLoans = dailyLoans;
-      _isLoading = false;
-    });
-  } catch (e) {
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-      _loadErrorMessage = 'Error al cargar los préstamos: $e';
-    });
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_loadErrorMessage!)));
   }
-}
-
 
   /// Formatea un ID en 5 dígitos
   String _formatIdAsFiveDigits(dynamic rawId) {
-    if (rawId == null) return ''.padLeft(_expectedIdDigits, '0');
+    if (rawId == null) return '00000';
     final rawString = rawId.toString();
 
     try {
       final idInt = int.parse(rawString);
-      if (idInt < 0) {
-        final positive = idInt.abs();
-        return positive.toString().padLeft(_expectedIdDigits, '0');
-      }
-      if (idInt > 99999) {
-        final truncated = idInt % 100000;
-        return truncated.toString().padLeft(_expectedIdDigits, '0');
-      }
+      if (idInt < 0) return '00000';
+      if (idInt > 99999) return '99999'; // 👈 CORRECCIÓN LÓGICA 3: evitar % y usar límite claro
       return idInt.toString().padLeft(_expectedIdDigits, '0');
     } catch (_) {
+      // 👇 CORRECCIÓN LÓGICA 4: solo dígitos, y si no hay, usar 00000
       final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
       if (digitsOnly.isEmpty) {
-        return rawString.length >= _expectedIdDigits
-            ? rawString.substring(0, _expectedIdDigits)
-            : rawString.padLeft(_expectedIdDigits, '0');
+        return '00000';
       } else {
-        if (digitsOnly.length >= _expectedIdDigits) {
+        if (digitsOnly.length > _expectedIdDigits) {
           return digitsOnly.substring(digitsOnly.length - _expectedIdDigits);
         } else {
           return digitsOnly.padLeft(_expectedIdDigits, '0');

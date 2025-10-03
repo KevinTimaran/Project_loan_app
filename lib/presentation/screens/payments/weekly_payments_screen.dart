@@ -68,14 +68,34 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
     try {
       final allLoans = await _loanRepository.getAllLoans();
 
-      // Filtrar préstamos activos con dueDate en la semana [_startOfWeek, _endOfWeek)
-      final weeklyLoans = allLoans.where((loan) {
-        final due = loan.dueDate;
-        if (due == null) return false;
-        return loan.status == 'activo' &&
-            !due.isBefore(_startOfWeek) &&
-            due.isBefore(_endOfWeek);
-      }).toList();
+      // 👇 CORRECCIÓN LÓGICA 1 y 2: Incluir paymentDates y estados relevantes
+      final weeklyLoans = <LoanModel>[];
+      for (final loan in allLoans) {
+        if (loan == null) continue;
+        // Excluir solo préstamos no cobrables
+        if (loan.status == 'pagado' || loan.status == 'cancelado') continue;
+
+        bool inWeek = false;
+
+        // Verificar en paymentDates
+        final paymentDates = loan.paymentDates;
+        if (paymentDates != null) {
+          inWeek = paymentDates.any((pd) {
+            if (pd == null) return false;
+            return !pd.isBefore(_startOfWeek) && pd.isBefore(_endOfWeek);
+          });
+        }
+
+        // Si no se encontró en paymentDates, verificar dueDate
+        if (!inWeek && loan.dueDate != null) {
+          final due = loan.dueDate!;
+          inWeek = !due.isBefore(_startOfWeek) && due.isBefore(_endOfWeek);
+        }
+
+        if (inWeek) {
+          weeklyLoans.add(loan);
+        }
+      }
 
       // Cargar nombres de clientes en paralelo (pero tolerante a fallos individuales)
       final futures = weeklyLoans.map((loan) async {
@@ -85,7 +105,6 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
           final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
           _clientNamesMap[key] = name.isNotEmpty ? name : 'Cliente desconocido';
         } catch (_) {
-          // Si falla obtener un cliente, anotamos 'Cliente desconocido' pero no abortamos todo
           final key = loan.clientId?.toString() ?? '';
           _clientNamesMap[key] = 'Cliente desconocido';
         }
@@ -100,46 +119,34 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
+      // 👇 CORRECCIÓN LÓGICA 5: usar variable local
+      final errorMessage = 'Error al cargar los préstamos: $e';
       setState(() {
         _isLoading = false;
-        _loadErrorMessage = 'Error al cargar los préstamos: $e';
+        _loadErrorMessage = errorMessage;
       });
-      // Mostrar snackbar opcional
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_loadErrorMessage!)),
+        SnackBar(content: Text(errorMessage)),
       );
     }
   }
 
   // Formatea el ID como 5 dígitos numéricos si es posible. Si no, devuelve fallback.
   String _formatIdAsFiveDigits(dynamic rawId) {
-    if (rawId == null) return ''.padLeft(_expectedIdDigits, '0');
+    if (rawId == null) return '00000';
     final rawString = rawId.toString();
 
-    // Intentamos parsear como entero
     try {
       final idInt = int.parse(rawString);
-      if (idInt < 0) {
-        // no permitimos negativos: usamos fallback (sin signo)
-        final positive = idInt.abs();
-        return positive.toString().padLeft(_expectedIdDigits, '0');
-      }
-      // Si supera 99999, mostramos los últimos 5 dígitos (decisión de diseño).
-      if (idInt > 99999) {
-        final truncated = idInt % 100000;
-        return truncated.toString().padLeft(_expectedIdDigits, '0');
-      }
+      if (idInt < 0) return '00000';
+      if (idInt > 99999) return '99999'; // 👈 CORRECCIÓN LÓGICA 3
       return idInt.toString().padLeft(_expectedIdDigits, '0');
     } catch (_) {
-      // Si no se puede parsear, intentamos extraer dígitos del string
       final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
       if (digitsOnly.isEmpty) {
-        // Fallback al rawString (recortado o rellenado)
-        return rawString.length >= _expectedIdDigits
-            ? rawString.substring(0, _expectedIdDigits)
-            : rawString.padLeft(_expectedIdDigits, '0');
+        return '00000'; // 👈 Solo dígitos válidos; si no, 00000
       } else {
-        if (digitsOnly.length >= _expectedIdDigits) {
+        if (digitsOnly.length > _expectedIdDigits) {
           return digitsOnly.substring(digitsOnly.length - _expectedIdDigits);
         } else {
           return digitsOnly.padLeft(_expectedIdDigits, '0');

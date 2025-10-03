@@ -18,6 +18,12 @@ class PaymentRepository {
     return box.values.where((payment) => payment.loanId == loanId).toList();
   }
 
+
+  Future<List<Payment>> getAllPayments() async {
+    final box = await Hive.openBox<Payment>('payments');
+    return box.values.toList();
+  }
+
   Future<void> deletePayment(String id) async {
     final box = await Hive.openBox<Payment>(_paymentBox);
     await box.delete(id);

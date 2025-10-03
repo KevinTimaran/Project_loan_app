@@ -1,8 +1,5 @@
-// lib/presentation/screens/loans/active_loans_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
@@ -30,9 +27,12 @@ class _ActiveLoansScreenState extends State<ActiveLoansScreen> {
       _isLoading = true;
     });
     try {
-      final loans = await _loanRepository.getActiveLoans();
+      // ✅ Aseguramos que solo se carguen préstamos con saldo pendiente
+      final allLoans = await _loanRepository.getAllLoans();
+      final activeLoans = allLoans.where((loan) => loan.remainingBalance > 0).toList();
+      
       setState(() {
-        _activeLoans = loans;
+        _activeLoans = activeLoans;
       });
     } catch (e) {
       debugPrint('Error al cargar los préstamos activos: $e');
@@ -40,6 +40,26 @@ class _ActiveLoansScreenState extends State<ActiveLoansScreen> {
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  // ✅ Función para generar un número de 5 dígitos a partir del ID
+  String _formatLoanNumber(String id) {
+    // Extrae solo los dígitos del ID
+    final digitsOnly = id.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digitsOnly.isEmpty) {
+      // Si no hay dígitos, usa el hash del ID
+      final hashCode = id.hashCode.abs();
+      return (hashCode % 100000).toString().padLeft(5, '0');
+    }
+    
+    // Toma los últimos 5 dígitos
+    if (digitsOnly.length >= 5) {
+      return digitsOnly.substring(digitsOnly.length - 5);
+    } else {
+      // Rellena con ceros a la izquierda
+      return digitsOnly.padLeft(5, '0');
     }
   }
 
@@ -65,7 +85,8 @@ class _ActiveLoansScreenState extends State<ActiveLoansScreen> {
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8.0),
                       child: ListTile(
-                        title: Text('Préstamo #${loan.loanNumber} - ${currencyFormatter.format(loan.amount)}'),
+                        // ✅ Usa la función para mostrar un número de 5 dígitos
+                        title: Text('Préstamo #${_formatLoanNumber(loan.id)} - ${currencyFormatter.format(loan.amount)}'),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -75,7 +96,6 @@ class _ActiveLoansScreenState extends State<ActiveLoansScreen> {
                         ),
                         trailing: const Icon(Icons.arrow_forward_ios),
                         onTap: () {
-                          // Navegar a la pantalla de detalles del préstamo
                           Navigator.push(
                             context,
                             MaterialPageRoute(
