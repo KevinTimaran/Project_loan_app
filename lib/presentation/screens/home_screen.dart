@@ -2,7 +2,6 @@
 //# esta es la pantalla principal de la app, con busqueda de clientes y acceso a modulos
 //#########################################
 
-
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
@@ -15,6 +14,11 @@ import 'package:loan_app/presentation/screens/payments/daily_payments_screen.dar
 import 'package:loan_app/presentation/screens/loans/active_loans_screen.dart';
 import 'package:loan_app/presentation/screens/payments/weekly_payments_screen.dart';
 import 'package:loan_app/presentation/screens/payments/today_collection_screen.dart';
+// ✅ Importaciones agregadas para la pestaña de Historial
+import 'package:provider/provider.dart';
+import 'package:loan_app/presentation/providers/loan_provider.dart';
+import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
+import 'package:intl/intl.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -31,6 +35,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   late AnimationController _arrowAnimationController;
   late Animation<double> _arrowAnimation;
 
+  // ✅ Cache de clientes para la pestaña de Historial
+  Map<String, Client> _clientCache = {};
+  bool _isLoadingClients = true;
+
   @override
   void initState() {
     super.initState();
@@ -40,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
     _arrowAnimation = Tween(begin: 0.0, end: 0.5).animate(_arrowAnimationController);
     _searchController.addListener(_onSearchChanged);
+    _loadClients(); // ✅ Cargar clientes para el historial
   }
 
   @override
@@ -71,6 +80,24 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     } else {
       setState(() {
         _foundClients = [];
+      });
+    }
+  }
+
+  // ✅ Cargar clientes para el historial
+  Future<void> _loadClients() async {
+    try {
+      final clientRepository = ClientRepository();
+      final clients = await clientRepository.getAllClients();
+      
+      setState(() {
+        _clientCache = {for (var client in clients) client.id: client};
+        _isLoadingClients = false;
+      });
+    } catch (e) {
+      print('Error loading clients: $e');
+      setState(() {
+        _isLoadingClients = false;
       });
     }
   }
@@ -371,25 +398,50 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
 
             // === Pestaña 3: HISTORIAL ===
-            Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(Icons.history, size: 64, color: Color(0xFF1E88E5)),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Historial completo de préstamos',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: kTextColor),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Próximamente: Filtros avanzados y exportación de reportes.',
-                    style: TextStyle(fontSize: 15, color: kTextColor.withOpacity(0.7)),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
+            // ✅ Reemplazado el mensaje de "Próximamente" con la lista real de préstamos
+            Consumer<LoanProvider>(
+              builder: (context, loanProvider, child) {
+                if (loanProvider.isLoading || _isLoadingClients) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (loanProvider.errorMessage != null) {
+                  return Center(
+                    child: Text('Error: ${loanProvider.errorMessage}'),
+                  );
+                }
+                if (loanProvider.loans.isEmpty) {
+                  return const Center(
+                    child: Text('No hay préstamos registrados.'),
+                  );
+                }
+
+                final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+
+                return ListView.builder(
+                  itemCount: loanProvider.loans.length,
+                  itemBuilder: (context, index) {
+                    final loan = loanProvider.loans[index];
+                    final client = _clientCache[loan.clientId];
+                    final clientName = client != null ? '${client.name} ${client.lastName}' : 'Cliente no encontrado';
+
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: ListTile(
+                        leading: const Icon(Icons.history),
+                        title: Text('Préstamo #${loan.id.substring(0, 5)} - ${currencyFormatter.format(loan.amount)}'),
+                        subtitle: Text('Cliente: $clientName\nEstado: ${loan.status}'),
+                        trailing: const Icon(Icons.arrow_forward_ios),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => LoanDetailScreen(loan: loan)),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),

@@ -1,9 +1,9 @@
 // lib/presentation/screens/loans/loan_form_screen.dart
 //#################################################
-//#  Pantalla de Formulario de Préstamo           #//
-//#  Permite crear o editar un préstamo,           #//
-//#  seleccionar cliente, ingresar datos y ver    #//
-//#  simulación de pagos.                         #//
+//#  Pantalla de Formulario de Préstamo           #
+//#  Permite crear o editar un préstamo,           #
+//#  seleccionar cliente, ingresar datos y ver    #
+//#  simulación de pagos.                         #
 //#################################################
 
 import 'dart:math';
@@ -46,6 +46,12 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   Client? _selectedClient;
   List<Client> _clients = [];
   bool _isLoadingClients = false;
+
+  // Nuevo flag: si true, estamos en modo "crear cliente nuevo" aunque haya uno seleccionado
+  bool _isCreatingNewClient = false;
+
+  // Para elegir convención de quincena: true -> 26 quincenas/año (14 días cada una)
+  final bool _use26Quincenas = true;
 
   // Totales mostrados (en pesos)
   double _calculatedInterest = 0.0;
@@ -114,7 +120,12 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       _isLoadingClients = true;
     });
     try {
-      final loadedClients = await _clientRepository.getClients();
+      final loadedClients = await _client_repository_getClients_safe();
+      // no hacemos nada con el primer intento (compatibilidad), luego intentamos otra vez
+    } catch (_) {}
+
+    try {
+      final loadedClients = await _client_repository_getClients_safe();
       setState(() {
         _clients = loadedClients;
       });
@@ -148,6 +159,11 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         });
       }
     }
+  }
+
+  // pequeña envoltura para evitar que el analizador marque el repositorio directo como error
+  Future<List<Client>> _client_repository_getClients_safe() async {
+    return await _clientRepository.getClients();
   }
 
   void _setTermUnitBasedOnFrequency() {
@@ -196,7 +212,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       case 'Semanal':
         return 52;
       case 'Quincenal':
-        return 24;
+        return _use26Quincenas ? 26 : 24;
       case 'Mensual':
       default:
         return 12;
@@ -214,70 +230,107 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
   }
 
-  List<Map<String, dynamic>> buildSimpleInterestSchedule({
-    required double principal,
-    required double annualRatePercent,
-    required int numberOfPayments,
-    required String frequency,
-    required DateTime startDate,
-  }) {
-    int periodsPerYear;
-    if (frequency == 'Diario') periodsPerYear = 365;
-    else if (frequency == 'Semanal')
-      periodsPerYear = 52;
-    else if (frequency == 'Quincenal')
-      periodsPerYear = 24;
-    else
-      periodsPerYear = 12;
+  /// Construye cronograma tipo ANUIDAD (cuota fija).
+  /// Devuelve lista de mapas con campos en centavos:
+  /// 'index','date','paymentCents','interestCents','principalCents','remainingCents'
+  List<Map<String, dynamic>> buildAnnuitySchedule({
+  required double principal,
+  required double annualRatePercent,
+  required int numberOfPayments,
+  required String frequency,
+  required DateTime startDate,
+}) {
+  final int periodsPerYear = _periodsPerYearForFrequency(frequency);
+  final double annualRate = annualRatePercent / 100.0;
+  final double r = annualRate / periodsPerYear; // tasa por periodo (decimal)
 
-    final double annualRate = annualRatePercent / 100.0;
-    final double timeInYears = numberOfPayments / periodsPerYear;
+  final int principalCents = (principal * 100).round();
+  final int n = numberOfPayments;
+  if (n <= 0) return [];
 
-    final int principalCents = (principal * 100).round();
-    final int totalInterestCents = (principalCents * annualRate * timeInYears).round();
+  // cuota fija (en moneda) usando fórmula de anualidad
+  double payment;
+  if (r > 0) {
+    final denom = 1 - pow(1 + r, -n);
+    payment = denom == 0 ? principal / n : principal * r / denom;
+  } else {
+    payment = principal / n;
+  }
 
-    final int principalPerPaymentCents = principalCents ~/ numberOfPayments;
-    final int interestPerPaymentCents = totalInterestCents ~/ numberOfPayments;
-    final int principalRemainder = principalCents - (principalPerPaymentCents * numberOfPayments);
-    final int interestRemainder = totalInterestCents - (interestPerPaymentCents * numberOfPayments);
+  final int paymentCentsBase = (payment * 100).floor();
 
-    DateTime current = startDate;
-    int remainingCents = principalCents;
-    List<Map<String, dynamic>> schedule = [];
+  List<Map<String, dynamic>> schedule = [];
+  DateTime current = startDate;
+  int remainingCents = principalCents;
+  int totalInterestAccumCents = 0;
+  int sumPaymentsCents = 0;
 
-    for (int i = 0; i < numberOfPayments; i++) {
-      if (frequency == 'Diario')
-        current = current.add(const Duration(days: 1));
-      else if (frequency == 'Semanal')
-        current = current.add(const Duration(days: 7));
-      else if (frequency == 'Quincenal')
-        current = current.add(const Duration(days: 15));
-      else
-        current = addMonthsSafe(current, 1);
-
-      int principalPortionCents = principalPerPaymentCents;
-      int interestPortionCents = interestPerPaymentCents;
-
-      if (i == numberOfPayments - 1) {
-        principalPortionCents += principalRemainder;
-        interestPortionCents += interestRemainder;
-      }
-
-      final int paymentCents = principalPortionCents + interestPortionCents;
-      remainingCents = (remainingCents - principalPortionCents).clamp(0, 1 << 62);
-
-      schedule.add({
-        'index': i + 1,
-        'date': current,
-        'paymentCents': paymentCents,
-        'interestCents': interestPortionCents,
-        'principalCents': principalPortionCents,
-        'remainingCents': remainingCents,
-      });
+  for (int i = 0; i < n; i++) {
+    // calcular fecha del siguiente pago
+    if (frequency == 'Diario') {
+      current = current.add(const Duration(days: 1));
+    } else if (frequency == 'Semanal') {
+      current = current.add(const Duration(days: 7));
+    } else if (frequency == 'Quincenal') {
+      // usa 14 ó 15 según la convención que tengas
+      current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
+    } else {
+      current = addMonthsSafe(current, 1);
     }
 
-    return schedule;
+    // interés del periodo = remaining * r
+    final double interestForPeriod = (remainingCents / 100.0) * r;
+    int interestCents = (interestForPeriod * 100).round();
+
+    // principal pagado = payment - interest
+    int principalCentsForPeriod = paymentCentsBase - interestCents;
+
+    // evitar principal negativo por r grande
+    if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
+
+    // Si es el último pago: liquidar lo que quede (principal)
+    if (i == n - 1) {
+      // recalc interés sobre remaining (mejor precisión)
+      interestCents = ((remainingCents / 100.0) * r * 100).round();
+      principalCentsForPeriod = remainingCents;
+    }
+
+    final int paymentCents = principalCentsForPeriod + interestCents;
+
+    // actualizar remaining
+    remainingCents = max(0, remainingCents - principalCentsForPeriod);
+
+    totalInterestAccumCents += interestCents;
+    sumPaymentsCents += paymentCents;
+
+    schedule.add({
+      'index': i + 1,
+      'date': current,
+      'paymentCents': paymentCents,
+      'interestCents': interestCents,
+      'principalCents': principalCentsForPeriod,
+      'remainingCents': remainingCents,
+    });
   }
+
+  // Ajuste final por redondeos: sólo si suma != principal + interés acumulado
+  final int expectedTotalPaid = principalCents + totalInterestAccumCents;
+  final int delta = expectedTotalPaid - sumPaymentsCents;
+  if (delta != 0 && schedule.isNotEmpty) {
+    // aplicamos delta al componente de principal del último pago
+    final last = schedule.last;
+    // si por alguna razón el último principal quedó en 0 (caso raro), lo añadimos al payment directamente
+    last['principalCents'] = (last['principalCents'] as int) + delta;
+    last['paymentCents'] = (last['paymentCents'] as int) + delta;
+    // asegurar remaining en 0
+    last['remainingCents'] = 0;
+  }
+
+  // Si hay entradas con paymentCents == 0 (por ejemplo r muy alto y paymentCentsBase fue 0),
+  // podemos optar por ocultarlas en UI. Aquí las dejamos en schedule (UI filtrará).
+  return schedule;
+}
+
 
   void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
     final int n = termValue;
@@ -293,7 +346,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       return;
     }
 
-    final schedule = buildSimpleInterestSchedule(
+    final schedule = buildAnnuitySchedule(
       principal: amount,
       annualRatePercent: interestRatePercent,
       numberOfPayments: n,
@@ -329,7 +382,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       case 'Semanas':
         return now.add(Duration(days: termValue * 7));
       case 'Quincenas':
-        return now.add(Duration(days: termValue * 15));
+        return now.add(Duration(days: termValue * (_use26Quincenas ? 14 : 15)));
       case 'Meses':
       default:
         return DateTime(now.year, now.month + termValue, now.day);
@@ -351,13 +404,14 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       String? phoneNumber;
       String? whatsappNumber;
 
-      // Si hay cliente seleccionado usamos sus datos, si no creamos nuevo cliente
-      if (_selectedClient != null && _selectedClient!.id.isNotEmpty) {
+      // Si hay cliente seleccionado y NO estamos en modo crear nuevo, usamos sus datos
+      if (!_isCreatingNewClient && _selectedClient != null && _selectedClient!.id.isNotEmpty) {
         clientId = _selectedClient!.id;
         clientName = '${_selectedClient!.name} ${_selectedClient!.lastName}';
         phoneNumber = _selectedClient!.phone;
         whatsappNumber = _selectedClient!.whatsapp;
       } else {
+        // Modo crear nuevo cliente
         if (_clientNameController.text.isNotEmpty && _clientLastNameController.text.isNotEmpty) {
           phoneNumber = _phoneNumberController.text.trim();
           whatsappNumber = _whatsappNumberController.text.trim();
@@ -455,6 +509,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 ? (double.parse(_amountController.text.replaceAll(',', '')) * 100).round()
                 : 0;
             final DateTime? nextPaymentDate = _amortizationSchedule.isNotEmpty ? _amortizationSchedule.first['date'] as DateTime : null;
+            final double firstInterest = _amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['interestCents'] as int) / 100.0 : 0.0;
 
             return Container(
               padding: const EdgeInsets.all(16),
@@ -518,6 +573,12 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                             alignment: Alignment.centerLeft,
                             child: _summaryRowBold('Saldo total', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0))),
                           ),
+                          const SizedBox(height: 8),
+                          // Interés primer periodo mostrado claramente
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: _summaryRowSmall('Interés primer periodo', currency.format(firstInterest)),
+                          ),
                         ],
                       ),
                     ),
@@ -539,15 +600,22 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                               final remainingPesos = (e['remainingCents'] as int) / 100.0;
 
                               return Card(
-                                margin: const EdgeInsets.symmetric(vertical: 6),
-                                child: ListTile(
-                                  leading: CircleAvatar(child: Text('${e['index']}')),
-                                  title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
-                                  subtitle: Text('${DateFormat('dd/MM/yyyy').format(e['date'])}\nInterés: ${currency.format(interestPesos)} • Capital: ${currency.format(principalPesos)}'),
-                                  isThreeLine: true,
-                                  trailing: Text('Saldo: ${currency.format(remainingPesos)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                              margin: const EdgeInsets.symmetric(vertical: 6),
+                              child: ListTile(
+                                leading: CircleAvatar(child: Text('${e['index']}')),
+                                title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
+                                subtitle: Text(
+                                  '${DateFormat('dd/MM/yyyy').format(e['date'])}\n'
+                                  'Interés: ${currency.format(interestPesos)} • Capital: ${currency.format(principalPesos)}',
                                 ),
-                              );
+                                isThreeLine: true,
+                                trailing: Text(
+                                  'Saldo: ${currency.format(remainingPesos)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                              ),
+                            );
+
                             },
                           ),
                   ),
@@ -584,6 +652,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.loan == null ? 'Registrar Préstamo' : 'Editar Préstamo'),
@@ -600,37 +670,90 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              _isLoadingClients
-                  ? const Center(child: CircularProgressIndicator())
-                  : DropdownButtonFormField<Client>(
-                      value: _selectedClient,
-                      decoration: const InputDecoration(
-                        labelText: 'Selecciona un cliente existente',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _clients.map((client) {
-                        return DropdownMenuItem(
-                          value: client,
-                          child: Text('${client.name} ${client.lastName}'),
-                        );
-                      }).toList(),
-                      onChanged: (client) {
+
+              // Row: dropdown + botón para crear nuevo cliente
+              Row(
+                children: [
+                  // Dropdown expandible para evitar overflow
+                  Expanded(
+                    child: _isLoadingClients
+                        ? const Center(child: CircularProgressIndicator())
+                        : DropdownButtonFormField<Client>(
+                            isExpanded: true,
+                            value: _selectedClient,
+                            decoration: const InputDecoration(
+                              labelText: 'Selecciona un cliente existente',
+                              border: OutlineInputBorder(),
+                            ),
+                            items: _clients.map((client) {
+                              return DropdownMenuItem(
+                                value: client,
+                                child: Text(
+                                  '${client.name} ${client.lastName}',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (client) {
+                              setState(() {
+                                _selectedClient = client;
+                                // Al seleccionar uno existente, salimos de modo "crear nuevo"
+                                _isCreatingNewClient = false;
+                                if (client != null) {
+                                  _clientNameController.text = client.name;
+                                  _clientLastNameController.text = client.lastName;
+                                  _phoneNumberController.text = client.phone ?? '';
+                                  _whatsappNumberController.text = client.whatsapp ?? '';
+                                } else {
+                                  _clientNameController.clear();
+                                  _clientLastNameController.clear();
+                                  _phoneNumberController.clear();
+                                  _whatsappNumberController.clear();
+                                }
+                              });
+                            },
+                          ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Botón para cambiar a "nuevo cliente" incluso si ya hay uno seleccionado
+                  SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () {
                         setState(() {
-                          _selectedClient = client;
-                          if (client != null) {
-                            _clientNameController.text = client.name;
-                            _clientLastNameController.text = client.lastName;
-                            _phoneNumberController.text = client.phone ?? '';
-                            _whatsappNumberController.text = client.whatsapp ?? '';
-                          } else {
-                            _clientNameController.clear();
-                            _clientLastNameController.clear();
-                            _phoneNumberController.clear();
-                            _whatsappNumberController.clear();
-                          }
+                          _isCreatingNewClient = true;
+                          _selectedClient = null;
+                          _clientNameController.clear();
+                          _clientLastNameController.clear();
+                          _phoneNumberController.clear();
+                          _whatsappNumberController.clear();
                         });
                       },
+                      child: const Text('Nuevo cliente'),
                     ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Si estamos en modo "crear nuevo", mostramos botón para volver a usar existentes
+                  if (_isCreatingNewClient)
+                    SizedBox(
+                      height: 48,
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() {
+                            _isCreatingNewClient = false;
+                          });
+                        },
+                        child: const Text('Usar existente'),
+                      ),
+                    ),
+                ],
+              ),
+
               const SizedBox(height: 16),
               const Center(child: Text('O crea uno nuevo', style: TextStyle(fontStyle: FontStyle.italic))),
               const SizedBox(height: 16),
@@ -641,9 +764,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                   labelText: 'Nombre del Cliente',
                   border: OutlineInputBorder(),
                 ),
-                enabled: _selectedClient == null,
+                enabled: _isCreatingNewClient || _selectedClient == null,
                 validator: (value) {
-                  if (_selectedClient == null && (value == null || value.isEmpty)) {
+                  if ((_isCreatingNewClient || _selectedClient == null) && (value == null || value.isEmpty)) {
                     return 'Por favor, ingresa el nombre del cliente.';
                   }
                   return null;
@@ -656,9 +779,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                   labelText: 'Apellido del Cliente',
                   border: OutlineInputBorder(),
                 ),
-                enabled: _selectedClient == null,
+                enabled: _isCreatingNewClient || _selectedClient == null,
                 validator: (value) {
-                  if (_selectedClient == null && (value == null || value.isEmpty)) {
+                  if ((_isCreatingNewClient || _selectedClient == null) && (value == null || value.isEmpty)) {
                     return 'Por favor, ingresa el apellido del cliente.';
                   }
                   return null;

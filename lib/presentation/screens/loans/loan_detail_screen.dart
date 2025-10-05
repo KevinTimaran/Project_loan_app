@@ -1,10 +1,10 @@
 //#################################################
 //#  Pantalla de Vista Detallada del Préstamo    #//
 //#  Muestra detalles completos de un préstamo,   #//
-//#  incluyendo historial de pagos.               #//
-//#  Permite editar si el préstamo está activo.   #//
+//#  incluyendo historial de pagos y plan.        #//
 //#################################################
 
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
@@ -27,6 +27,7 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   final LoanRepository _loanRepository = LoanRepository();
   final PaymentRepository _paymentRepository = PaymentRepository();
   late Future<LoanModel?> _loanDetailsFuture;
+  List<Map<String, dynamic>> _computedSchedule = [];
 
   @override
   void initState() {
@@ -35,14 +36,21 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   }
 
   Future<LoanModel?> _loadLoanDetails() async {
-    return await _loanRepository.getLoanById(widget.loan.id);
+    final loan = await _loanRepository.getLoanById(widget.loan.id);
+    if (loan != null) {
+      _computedSchedule = buildAnnuitySchedule(
+        principal: loan.amount ?? 0.0,
+        annualRatePercent: (loan.interestRate ?? 0.0) * 100,
+        numberOfPayments: loan.termValue ?? 0,
+        frequency: loan.paymentFrequency ?? 'Mensual',
+        startDate: loan.startDate ?? DateTime.now(),
+      ).where((e) => (e['paymentCents'] as int) > 0).toList();
+    }
+    return loan;
   }
 
   Future<void> _makePhoneCall(BuildContext context, String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
     } else {
@@ -59,40 +67,130 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     if (await canLaunchUrl(whatsappUri)) {
       await launchUrl(whatsappUri);
     } else {
-      // ✅ URL CORREGIDA: Sin espacios en blanco
       final Uri webWhatsappUri = Uri.parse('https://wa.me/$whatsappNumber');
       if (await canLaunchUrl(webWhatsappUri)) {
         await launchUrl(webWhatsappUri, mode: LaunchMode.externalApplication);
       } else {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo abrir WhatsApp para $whatsappNumber. Asegúrate de tener la app o de que el número sea correcto.')),
+            SnackBar(content: Text('No se pudo abrir WhatsApp para $whatsappNumber')),
           );
         }
       }
     }
   }
-  
-  // ✅ NUEVA FUNCIÓN para abrir la pantalla de edición
-Future<void> _openRegisterPayment(LoanModel loan) async {
-  final result = await Navigator.push(
-    context,
-    MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
-  );
 
-  if (!mounted) return;
-  if (result == true) {
-    // ✅ Forzar la recarga de los detalles del préstamo
-    setState(() {
-      _loanDetailsFuture = _loadLoanDetails(); // Esto vuelve a ejecutar el FutureBuilder
-    });
+  Future<void> _openRegisterPayment(LoanModel loan) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
+    );
+
+    if (!mounted) return;
+    if (result == true) {
+      setState(() {
+        _loanDetailsFuture = _loadLoanDetails();
+      });
+    }
   }
-}
 
-  // ❌ ELIMINADA: Ya no se usa _openEditLoan
+  // ---------- FUNCIÓN CORREGIDA PARA CRONOGRAMA ----------
+  List<Map<String, dynamic>> buildAnnuitySchedule({
+    required double principal,
+    required double annualRatePercent,
+    required int numberOfPayments,
+    required String frequency,
+    required DateTime startDate,
+  }) {
+    final periodsPerYear = _periodsPerYearForFrequency(frequency);
+    final annualRate = annualRatePercent / 100.0;
+    final r = (periodsPerYear > 0) ? (annualRate / periodsPerYear) : 0.0;
+
+    final principalCents = (principal * 100).round();
+    final n = numberOfPayments;
+    if (n <= 0) return [];
+
+    double payment;
+    if (r > 0) {
+      final denom = 1 - pow(1 + r, -n);
+      payment = denom == 0 ? principal / n : principal * r / denom;
+    } else {
+      payment = principal / n;
+    }
+
+    final paymentCentsBase = (payment * 100).floor();
+
+    List<Map<String, dynamic>> schedule = [];
+    DateTime current = startDate;
+    int remainingCents = principalCents;
+    int totalInterestAccumCents = 0;
+    int sumPaymentsCents = 0;
+
+    for (int i = 0; i < n; i++) {
+      if (frequency.toLowerCase() == 'diario') {
+        current = current.add(const Duration(days: 1));
+      } else if (frequency.toLowerCase() == 'semanal') {
+        current = current.add(const Duration(days: 7));
+      } else if (frequency.toLowerCase() == 'quincenal') {
+        current = current.add(const Duration(days: 15));
+      } else {
+        current = DateTime(current.year, current.month + 1, current.day);
+      }
+
+      final double interestForPeriod = (remainingCents / 100.0) * r;
+      int interestCents = (interestForPeriod * 100).round();
+      int principalCentsForPeriod = paymentCentsBase - interestCents;
+      if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
+
+      if (i == n - 1) {
+        interestCents = ((remainingCents / 100.0) * r * 100).round();
+        principalCentsForPeriod = remainingCents;
+      }
+
+      final paymentCents = principalCentsForPeriod + interestCents;
+      remainingCents = max(0, remainingCents - principalCentsForPeriod);
+      totalInterestAccumCents += interestCents;
+      sumPaymentsCents += paymentCents;
+
+      schedule.add({
+        'index': i + 1,
+        'date': current,
+        'paymentCents': paymentCents,
+        'interestCents': interestCents,
+        'principalCents': principalCentsForPeriod,
+        'remainingCents': remainingCents,
+      });
+    }
+
+    final expectedTotalPaid = principalCents + totalInterestAccumCents;
+    final delta = expectedTotalPaid - sumPaymentsCents;
+    if (delta != 0 && schedule.isNotEmpty) {
+      final last = schedule.last;
+      last['principalCents'] = (last['principalCents'] as int) + delta;
+      last['paymentCents'] = (last['paymentCents'] as int) + delta;
+      last['remainingCents'] = 0;
+    }
+
+    return schedule;
+  }
+
+  int _periodsPerYearForFrequency(String freq) {
+    switch (freq.toLowerCase()) {
+      case 'diario':
+        return 365;
+      case 'semanal':
+        return 52;
+      case 'quincenal':
+        return 24;
+      default:
+        return 12;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
+
     return Scaffold(
       appBar: AppBar(
         title: Text('Detalles del Préstamo #${widget.loan.loanNumber}'),
@@ -108,85 +206,87 @@ Future<void> _openRegisterPayment(LoanModel loan) async {
           }
 
           final loan = snapshot.data!;
-          final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
-          final payments = loan.payments;
+
+          // >>> Normalizamos valores que pueden ser null para evitar errores en operaciones
+          final double amount = (loan.amount ?? 0.0);
+          final double totalAmountToPay = (loan.totalAmountToPay ?? 0.0);
+          final double calculatedPaymentAmount = (loan.calculatedPaymentAmount ?? 0.0);
+          final double totalPaid = (loan.totalPaid ?? 0.0);
+          final double remainingBalance = (loan.remainingBalance ?? (totalAmountToPay - totalPaid));
+          final double totalInterest = (totalAmountToPay - amount);
+
+          final payments = loan.payments ?? <Payment>[];
 
           return SingleChildScrollView(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // ===== TARJETA PRINCIPAL DEL PRÉSTAMO =====
                 Card(
+                  color: Colors.deepPurple.shade50,
                   elevation: 4,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Cliente: ${loan.clientName}',
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                        const SizedBox(height: 10),
-                        Text('Monto: ${currencyFormatter.format(loan.amount)}'),
-                        Text('Interés: ${(loan.interestRate * 100).toStringAsFixed(2)}%'),
-                        Text('Plazo: ${loan.termValue} ${loan.termUnit}'),
-                        Text('Frecuencia: ${loan.paymentFrequency}'),
-                        Text('Total a pagar: ${currencyFormatter.format(loan.totalAmountToPay)}'),
-                        Text('Cuota: ${currencyFormatter.format(loan.calculatedPaymentAmount)}'),
-                        Text('Fecha de inicio: ${DateFormat('dd/MM/yyyy').format(loan.startDate)}'),
-                        Text('Fecha de vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate)}'),
-                        const Divider(height: 20),
-                        Text(
-                          'Saldo Pagado: ${currencyFormatter.format(loan.totalPaid)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-                        ),
-                        Text(
-                          'Saldo Pendiente: ${currencyFormatter.format(loan.remainingBalance)}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
-                        ),
+                        Text('Cliente: ${loan.clientName}', style: Theme.of(context).textTheme.titleLarge),
+                        const SizedBox(height: 8),
+                        Text('Fecha de crédito: ${DateFormat('dd/MM/yyyy').format(loan.startDate ?? DateTime.now())}'),
+                        Text('Próxima cuota: ${_computedSchedule.isNotEmpty ? DateFormat('dd/MM/yyyy').format(_computedSchedule.first['date']) : '-'}'),
+                        Text('Vencimiento: ${DateFormat('dd/MM/yyyy').format(loan.dueDate ?? DateTime.now())}'),
+                        Text('Interés: ${( (loan.interestRate ?? 0.0) * 100 ).toStringAsFixed(2)}%'),
+                        Text('Valor total interés: ${currency.format(totalInterest)}'),
+                        Text('Valor cuota: ${currency.format(calculatedPaymentAmount)}'),
+                        Text('Total prestado: ${currency.format(amount)}'),
+                        Text('Total + interés: ${currency.format(totalAmountToPay)}'),
+                        Text('Saldo total: ${currency.format(remainingBalance)}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
                       ],
                     ),
                   ),
                 ),
                 const SizedBox(height: 20),
-                if ((loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty) ||
-                    (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty))
-                  Card(
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Opciones de Contacto', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 10),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              if (loan.phoneNumber != null && loan.phoneNumber!.isNotEmpty)
-                                ElevatedButton.icon(
-                                  onPressed: () => _makePhoneCall(context, loan.phoneNumber!),
-                                  icon: const Icon(Icons.phone),
-                                  label: const Text('Llamar'),
-                                  style: ElevatedButton.styleFrom(animationDuration: Duration.zero),
-                                ),
-                              if (loan.whatsappNumber != null && loan.whatsappNumber!.isNotEmpty)
-                                ElevatedButton.icon(
-                                  onPressed: () => _launchWhatsApp(context, loan.whatsappNumber!),
-                                  icon: const Icon(FontAwesomeIcons.whatsapp),
-                                  label: const Text('WhatsApp'),
-                                  style: ElevatedButton.styleFrom(animationDuration: Duration.zero),
-                                ),
-                            ],
-                          ),
-                        ],
+
+                // ===== LISTA DE CUOTAS CALCULADAS =====
+                const Text('Plan de Pagos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 10),
+                _computedSchedule.isEmpty
+                    ? const Center(child: Text('No hay cuotas para mostrar.'))
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: _computedSchedule.length,
+                        itemBuilder: (context, index) {
+                          final e = _computedSchedule[index];
+                          final paymentPesos = (e['paymentCents'] as int) / 100.0;
+                          final interestPesos = (e['interestCents'] as int) / 100.0;
+                          final principalPesos = (e['principalCents'] as int) / 100.0;
+                          final remainingPesos = (e['remainingCents'] as int) / 100.0;
+
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: ListTile(
+                              leading: CircleAvatar(child: Text('${e['index']}')),
+                              title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
+                              subtitle: Text(
+                                '${DateFormat('dd/MM/yyyy').format(e['date'])}\n'
+                                'Interés: ${currency.format(interestPesos)} • Capital: ${currency.format(principalPesos)}',
+                              ),
+                              isThreeLine: true,
+                              trailing: Text(
+                                'Saldo: ${currency.format(remainingPesos)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          );
+                        },
                       ),
-                    ),
-                  ),
                 const SizedBox(height: 20),
+
+                // ===== HISTORIAL DE PAGOS =====
                 const Text('Historial de Pagos', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
                 payments.isEmpty
@@ -197,75 +297,20 @@ Future<void> _openRegisterPayment(LoanModel loan) async {
                         itemCount: payments.length,
                         itemBuilder: (context, index) {
                           final payment = payments[index];
-                          return Dismissible(
-                            key: ValueKey(payment.id),
-                            background: Container(
-                              color: Colors.red,
-                              alignment: Alignment.centerRight,
-                              padding: const EdgeInsets.only(right: 20.0),
-                              child: const Icon(Icons.delete, color: Colors.white),
-                            ),
-                            direction: DismissDirection.endToStart,
-                            confirmDismiss: (direction) async {
-                              bool? confirmDelete = await showDialog<bool>(
-                                context: context,
-                                builder: (BuildContext context) {
-                                  return AlertDialog(
-                                    title: const Text('Confirmar Eliminación'),
-                                    content: const Text('¿Estás seguro de que deseas eliminar este pago? Esta acción es irreversible.'),
-                                    actions: <Widget>[
-                                      TextButton(
-                                        onPressed: () => Navigator.of(context).pop(false),
-                                        child: const Text('Cancelar'),
-                                        style: TextButton.styleFrom().copyWith(animationDuration: Duration.zero),
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () => Navigator.of(context).pop(true),
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red).copyWith(animationDuration: Duration.zero),
-                                        child: const Text('Eliminar'),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              );
-                              if (confirmDelete == true) {
-                                try {
-                                  await _paymentRepository.deletePayment(payment.id);
-                                  setState(() {
-                                    _loanDetailsFuture = _loadLoanDetails();
-                                  });
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Pago eliminado exitosamente.')),
-                                  );
-                                } catch (e) {
-                                  if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Error al eliminar pago: $e')),
-                                    );
-                                  }
-                                }
-                              }
-                              return confirmDelete;
-                            },
-                            child: Card(
-                              margin: const EdgeInsets.symmetric(vertical: 4),
-                              child: ListTile(
-                                leading: const Icon(Icons.receipt),
-                                title: Text(
-                                  'Pago de: ${currencyFormatter.format(payment.amount)}',
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                                subtitle: Text(
-                                  'Fecha: ${DateFormat('dd/MM/yyyy').format(payment.date)}',
-                                ),
-                              ),
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 4),
+                            child: ListTile(
+                              leading: const Icon(Icons.receipt),
+                              title: Text('Pago de: ${currency.format(payment.amount)}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text('Fecha: ${DateFormat('dd/MM/yyyy').format(payment.date)}'),
                             ),
                           );
                         },
                       ),
                 const SizedBox(height: 20),
-                // ✅ AGREGADO: Ahora se puede registrar pago desde aquí
-                if (loan.remainingBalance > 0)
+
+                if (remainingBalance > 0)
                   ElevatedButton.icon(
                     onPressed: () => _openRegisterPayment(loan),
                     icon: const Icon(Icons.add_task),
@@ -273,7 +318,6 @@ Future<void> _openRegisterPayment(LoanModel loan) async {
                     style: ElevatedButton.styleFrom(
                       foregroundColor: Colors.white,
                       backgroundColor: Theme.of(context).primaryColor,
-                      animationDuration: Duration.zero,
                     ),
                   ),
               ],
@@ -281,10 +325,6 @@ Future<void> _openRegisterPayment(LoanModel loan) async {
           );
         },
       ),
-      // ❌ ELIMINADO: No se puede editar préstamo desde aquí
-      // floatingActionButton: widget.loan.status == 'activo'
-      //     ? FloatingActionButton(...)
-      //     : null,
     );
   }
 }

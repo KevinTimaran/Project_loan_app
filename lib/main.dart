@@ -2,7 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
-import 'package:path_provider/path_provider.dart'; // Importa este paquete
+import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
 // Importaciones de modelos y entidades
@@ -21,26 +21,27 @@ import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart'
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Obtiene la ruta del directorio de documentos de la aplicación
-  Directory appDocDir = await getApplicationDocumentsDirectory();
-  String appDocPath = appDocDir.path;
 
-  await Hive.initFlutter(appDocPath);
+  // ✅ Usa una carpeta interna de la app para evitar errores de bloqueo en Linux
+  final Directory appDir = await getApplicationDocumentsDirectory();
+  final String hivePath = '${appDir.path}/hive_data';
+  await Directory(hivePath).create(recursive: true);
 
-  // AÑADIDO: Imprime la ruta donde Hive guarda los datos
-  print('DEBUG: La ruta de Hive es: $appDocPath');
+  // ✅ Inicializa Hive en una ruta segura
+  await Hive.initFlutter(hivePath);
+  print('DEBUG: Hive usando la ruta: $hivePath');
 
-  // 1. Registra todos los adaptadores, usando los modelos que ya hemos definido
+  // ✅ Registra todos los adaptadores necesarios
   Hive.registerAdapter(ClientAdapter());
   Hive.registerAdapter(LoanModelAdapter());
-  Hive.registerAdapter(PaymentAdapter()); 
-  
-  // 2. Abre todas las cajas de Hive necesarias
+  Hive.registerAdapter(PaymentAdapter());
+
+  // ✅ Abre las cajas necesarias
   await Hive.openBox<Client>('clients');
   await Hive.openBox<LoanModel>('loans');
   await Hive.openBox<Payment>('payments');
 
+  // ✅ Inicia la app normalmente
   runApp(
     ChangeNotifierProvider(
       create: (context) => LoanProvider()..loadLoans(),
