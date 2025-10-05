@@ -36,6 +36,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   final TextEditingController _clientLastNameController = TextEditingController();
   final TextEditingController _phoneNumberController = TextEditingController();
   final TextEditingController _whatsappNumberController = TextEditingController();
+  // ✅ Controlador para la fecha de inicio
+  final TextEditingController _startDateController = TextEditingController();
+
   final LoanRepository _loanRepository = LoanRepository();
   final ClientRepository _clientRepository = ClientRepository();
 
@@ -73,6 +76,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _interestRateController.addListener(_updateCalculations);
     _termValueController.addListener(_updateCalculations);
 
+    // ✅ Inicializar el controlador de fecha
+    _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
+
     // Si venimos en modo edición, precargar los valores del préstamo
     if (widget.loan != null) {
       _prefillFromLoan(widget.loan!);
@@ -91,6 +97,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _clientLastNameController.dispose();
     _phoneNumberController.dispose();
     _whatsappNumberController.dispose();
+    // ✅ Liberar el nuevo controlador
+    _startDateController.dispose();
     super.dispose();
   }
 
@@ -106,6 +114,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _paymentFrequency = loan.paymentFrequency;
     _setTermUnitBasedOnFrequency();
     _startDate = loan.startDate;
+    // ✅ Actualizar el controlador tras precargar
+    _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
     _dueDate = loan.dueDate;
     _paymentDates = loan.paymentDates ?? [];
     _calculatedTotalToPay = loan.totalAmountToPay ?? _calculatedTotalToPay;
@@ -234,103 +244,102 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   /// Devuelve lista de mapas con campos en centavos:
   /// 'index','date','paymentCents','interestCents','principalCents','remainingCents'
   List<Map<String, dynamic>> buildAnnuitySchedule({
-  required double principal,
-  required double annualRatePercent,
-  required int numberOfPayments,
-  required String frequency,
-  required DateTime startDate,
-}) {
-  final int periodsPerYear = _periodsPerYearForFrequency(frequency);
-  final double annualRate = annualRatePercent / 100.0;
-  final double r = annualRate / periodsPerYear; // tasa por periodo (decimal)
+    required double principal,
+    required double annualRatePercent,
+    required int numberOfPayments,
+    required String frequency,
+    required DateTime startDate,
+  }) {
+    final int periodsPerYear = _periodsPerYearForFrequency(frequency);
+    final double annualRate = annualRatePercent / 100.0;
+    final double r = annualRate / periodsPerYear; // tasa por periodo (decimal)
 
-  final int principalCents = (principal * 100).round();
-  final int n = numberOfPayments;
-  if (n <= 0) return [];
+    final int principalCents = (principal * 100).round();
+    final int n = numberOfPayments;
+    if (n <= 0) return [];
 
-  // cuota fija (en moneda) usando fórmula de anualidad
-  double payment;
-  if (r > 0) {
-    final denom = 1 - pow(1 + r, -n);
-    payment = denom == 0 ? principal / n : principal * r / denom;
-  } else {
-    payment = principal / n;
-  }
-
-  final int paymentCentsBase = (payment * 100).floor();
-
-  List<Map<String, dynamic>> schedule = [];
-  DateTime current = startDate;
-  int remainingCents = principalCents;
-  int totalInterestAccumCents = 0;
-  int sumPaymentsCents = 0;
-
-  for (int i = 0; i < n; i++) {
-    // calcular fecha del siguiente pago
-    if (frequency == 'Diario') {
-      current = current.add(const Duration(days: 1));
-    } else if (frequency == 'Semanal') {
-      current = current.add(const Duration(days: 7));
-    } else if (frequency == 'Quincenal') {
-      // usa 14 ó 15 según la convención que tengas
-      current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
+    // cuota fija (en moneda) usando fórmula de anualidad
+    double payment;
+    if (r > 0) {
+      final denom = 1 - pow(1 + r, -n);
+      payment = denom == 0 ? principal / n : principal * r / denom;
     } else {
-      current = addMonthsSafe(current, 1);
+      payment = principal / n;
     }
 
-    // interés del periodo = remaining * r
-    final double interestForPeriod = (remainingCents / 100.0) * r;
-    int interestCents = (interestForPeriod * 100).round();
+    final int paymentCentsBase = (payment * 100).floor();
 
-    // principal pagado = payment - interest
-    int principalCentsForPeriod = paymentCentsBase - interestCents;
+    List<Map<String, dynamic>> schedule = [];
+    DateTime current = startDate;
+    int remainingCents = principalCents;
+    int totalInterestAccumCents = 0;
+    int sumPaymentsCents = 0;
 
-    // evitar principal negativo por r grande
-    if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
+    for (int i = 0; i < n; i++) {
+      // calcular fecha del siguiente pago
+      if (frequency == 'Diario') {
+        current = current.add(const Duration(days: 1));
+      } else if (frequency == 'Semanal') {
+        current = current.add(const Duration(days: 7));
+      } else if (frequency == 'Quincenal') {
+        // usa 14 ó 15 según la convención que tengas
+        current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
+      } else {
+        current = addMonthsSafe(current, 1);
+      }
 
-    // Si es el último pago: liquidar lo que quede (principal)
-    if (i == n - 1) {
-      // recalc interés sobre remaining (mejor precisión)
-      interestCents = ((remainingCents / 100.0) * r * 100).round();
-      principalCentsForPeriod = remainingCents;
+      // interés del periodo = remaining * r
+      final double interestForPeriod = (remainingCents / 100.0) * r;
+      int interestCents = (interestForPeriod * 100).round();
+
+      // principal pagado = payment - interest
+      int principalCentsForPeriod = paymentCentsBase - interestCents;
+
+      // evitar principal negativo por r grande
+      if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
+
+      // Si es el último pago: liquidar lo que quede (principal)
+      if (i == n - 1) {
+        // recalc interés sobre remaining (mejor precisión)
+        interestCents = ((remainingCents / 100.0) * r * 100).round();
+        principalCentsForPeriod = remainingCents;
+      }
+
+      final int paymentCents = principalCentsForPeriod + interestCents;
+
+      // actualizar remaining
+      remainingCents = max(0, remainingCents - principalCentsForPeriod);
+
+      totalInterestAccumCents += interestCents;
+      sumPaymentsCents += paymentCents;
+
+      schedule.add({
+        'index': i + 1,
+        'date': current,
+        'paymentCents': paymentCents,
+        'interestCents': interestCents,
+        'principalCents': principalCentsForPeriod,
+        'remainingCents': remainingCents,
+      });
     }
 
-    final int paymentCents = principalCentsForPeriod + interestCents;
+    // Ajuste final por redondeos: sólo si suma != principal + interés acumulado
+    final int expectedTotalPaid = principalCents + totalInterestAccumCents;
+    final int delta = expectedTotalPaid - sumPaymentsCents;
+    if (delta != 0 && schedule.isNotEmpty) {
+      // aplicamos delta al componente de principal del último pago
+      final last = schedule.last;
+      // si por alguna razón el último principal quedó en 0 (caso raro), lo añadimos al payment directamente
+      last['principalCents'] = (last['principalCents'] as int) + delta;
+      last['paymentCents'] = (last['paymentCents'] as int) + delta;
+      // asegurar remaining en 0
+      last['remainingCents'] = 0;
+    }
 
-    // actualizar remaining
-    remainingCents = max(0, remainingCents - principalCentsForPeriod);
-
-    totalInterestAccumCents += interestCents;
-    sumPaymentsCents += paymentCents;
-
-    schedule.add({
-      'index': i + 1,
-      'date': current,
-      'paymentCents': paymentCents,
-      'interestCents': interestCents,
-      'principalCents': principalCentsForPeriod,
-      'remainingCents': remainingCents,
-    });
+    // Si hay entradas con paymentCents == 0 (por ejemplo r muy alto y paymentCentsBase fue 0),
+    // podemos optar por ocultarlas en UI. Aquí las dejamos en schedule (UI filtrará).
+    return schedule;
   }
-
-  // Ajuste final por redondeos: sólo si suma != principal + interés acumulado
-  final int expectedTotalPaid = principalCents + totalInterestAccumCents;
-  final int delta = expectedTotalPaid - sumPaymentsCents;
-  if (delta != 0 && schedule.isNotEmpty) {
-    // aplicamos delta al componente de principal del último pago
-    final last = schedule.last;
-    // si por alguna razón el último principal quedó en 0 (caso raro), lo añadimos al payment directamente
-    last['principalCents'] = (last['principalCents'] as int) + delta;
-    last['paymentCents'] = (last['paymentCents'] as int) + delta;
-    // asegurar remaining en 0
-    last['remainingCents'] = 0;
-  }
-
-  // Si hay entradas con paymentCents == 0 (por ejemplo r muy alto y paymentCentsBase fue 0),
-  // podemos optar por ocultarlas en UI. Aquí las dejamos en schedule (UI filtrará).
-  return schedule;
-}
-
 
   void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
     final int n = termValue;
@@ -371,7 +380,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   }
 
   DateTime _calculateDueDate() {
-    final now = DateTime.now();
+    // ✅ Usar _startDate en lugar de DateTime.now()
+    final now = _startDate;
     int termValue = int.tryParse(_termValueController.text) ?? 0;
 
     if (termValue == 0) return now;
@@ -393,6 +403,24 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     setState(() {
       _dueDate = _calculateDueDate();
     });
+  }
+
+  // ✅ Función para seleccionar la fecha de inicio
+  Future<void> _selectStartDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _startDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+
+    if (picked != null && picked != _startDate) {
+      setState(() {
+        _startDate = picked;
+        _startDateController.text = DateFormat('dd/MM/yyyy').format(picked);
+        _updateCalculations(); // ✅ Recalcular con la nueva fecha
+      });
+    }
   }
 
   Future<void> _saveLoan() async {
@@ -458,7 +486,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         // guardamos como decimal (0.05) para mantener consistencia con otras partes
         interestRate: (interestRatePercent / 100),
         termValue: termValue,
-        startDate: _startDate,
+        startDate: _startDate, // ✅ Ya se usa la fecha seleccionada
         dueDate: _dueDate,
         paymentFrequency: _paymentFrequency,
         termUnit: _termUnit,
@@ -600,22 +628,21 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                               final remainingPesos = (e['remainingCents'] as int) / 100.0;
 
                               return Card(
-                              margin: const EdgeInsets.symmetric(vertical: 6),
-                              child: ListTile(
-                                leading: CircleAvatar(child: Text('${e['index']}')),
-                                title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
-                                subtitle: Text(
-                                  '${DateFormat('dd/MM/yyyy').format(e['date'])}\n'
-                                  'Interés: ${currency.format(interestPesos)} • Capital: ${currency.format(principalPesos)}',
+                                margin: const EdgeInsets.symmetric(vertical: 6),
+                                child: ListTile(
+                                  leading: CircleAvatar(child: Text('${e['index']}')),
+                                  title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
+                                  subtitle: Text(
+                                    '${DateFormat('dd/MM/yyyy').format(e['date'])}\n'
+                                    'Interés: ${currency.format(interestPesos)} • Capital: ${currency.format(principalPesos)}',
+                                  ),
+                                  isThreeLine: true,
+                                  trailing: Text(
+                                    'Saldo: ${currency.format(remainingPesos)}',
+                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                  ),
                                 ),
-                                isThreeLine: true,
-                                trailing: Text(
-                                  'Saldo: ${currency.format(remainingPesos)}',
-                                  style: const TextStyle(fontWeight: FontWeight.bold),
-                                ),
-                              ),
-                            );
-
+                              );
                             },
                           ),
                   ),
@@ -812,6 +839,20 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
+
+              // ✅ Campo de fecha de inicio del préstamo
+              TextFormField(
+                controller: _startDateController,
+                readOnly: true,
+                decoration: const InputDecoration(
+                  labelText: 'Fecha de Inicio del Préstamo',
+                  border: OutlineInputBorder(),
+                  suffixIcon: Icon(Icons.calendar_today),
+                ),
+                onTap: () => _selectStartDate(context),
+              ),
+              const SizedBox(height: 16),
+
               TextFormField(
                 controller: _amountController,
                 decoration: const InputDecoration(

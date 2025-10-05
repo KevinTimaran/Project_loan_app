@@ -1,16 +1,14 @@
-// lib/main.dart
+// lib/main.dart (SUGERENCIA - no cambia nombres públicos)
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 
-// Importaciones de modelos y entidades
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/entities/payment.dart';
 
-// Importaciones de pantallas y providers
 import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:loan_app/presentation/screens/loans/add_loan_screen.dart';
@@ -22,26 +20,37 @@ import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart'
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ✅ Usa una carpeta interna de la app para evitar errores de bloqueo en Linux
-  final Directory appDir = await getApplicationDocumentsDirectory();
-  final String hivePath = '${appDir.path}/hive_data';
-  await Directory(hivePath).create(recursive: true);
+  String hivePath;
 
-  // ✅ Inicializa Hive en una ruta segura
+  if (Platform.isLinux) {
+    final Directory appDir = Directory('${Platform.environment['HOME']}/Documentos/hive_data');
+    await appDir.create(recursive: true);
+    hivePath = appDir.path;
+  } else {
+    final Directory appDir = await getApplicationDocumentsDirectory();
+    hivePath = appDir.path;
+  }
+
+  // Inicializa Hive en ruta decidida
   await Hive.initFlutter(hivePath);
-  print('DEBUG: Hive usando la ruta: $hivePath');
+  debugPrint('DEBUG: Hive usando la ruta: $hivePath');
 
-  // ✅ Registra todos los adaptadores necesarios
+  // Registrar adaptadores
   Hive.registerAdapter(ClientAdapter());
   Hive.registerAdapter(LoanModelAdapter());
   Hive.registerAdapter(PaymentAdapter());
 
-  // ✅ Abre las cajas necesarias
-  await Hive.openBox<Client>('clients');
-  await Hive.openBox<LoanModel>('loans');
-  await Hive.openBox<Payment>('payments');
+  // Abrir cajas con try/catch para evitar crash si algo falla
+  try {
+    if (!Hive.isBoxOpen('clients')) await Hive.openBox<Client>('clients').timeout(const Duration(seconds: 3));
+    if (!Hive.isBoxOpen('loans')) await Hive.openBox<LoanModel>('loans').timeout(const Duration(seconds: 3));
+    if (!Hive.isBoxOpen('payments')) await Hive.openBox<Payment>('payments').timeout(const Duration(seconds: 3));
+    debugPrint('DEBUG: Cajas Hive abiertas correctamente ✅');
+  } catch (e, st) {
+    // Si abrir cajas falla, lo registramos y seguimos: la app puede crear cajas al vuelo.
+    debugPrint('WARN: No se pudieron abrir las cajas Hive al inicio: $e\n$st');
+  }
 
-  // ✅ Inicia la app normalmente
   runApp(
     ChangeNotifierProvider(
       create: (context) => LoanProvider()..loadLoans(),
@@ -52,28 +61,13 @@ Future<void> main() async {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'LoanApp',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
-        appBarTheme: const AppBarTheme(
-          color: Color(0xFF1E88E5),
-          iconTheme: IconThemeData(color: Colors.white),
-          titleTextStyle: TextStyle(color: Colors.white),
-        ),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: Color(0xFF1E88E5),
-          foregroundColor: Colors.white,
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1E88E5),
-            foregroundColor: Colors.white,
-          ),
-        ),
       ),
       initialRoute: '/',
       routes: {

@@ -8,7 +8,9 @@ plugins {
 android {
     namespace = "com.example.loan_app"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+
+    // <-- Versión NDK fijada para compatibilidad con plugins nativos
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

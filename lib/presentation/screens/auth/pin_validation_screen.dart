@@ -1,8 +1,8 @@
 // lib/presentation/screens/auth/pin_validation_screen.dart
+
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:loan_app/presentation/screens/home_screen.dart'; // Importa HomeScreen
-import 'package:loan_app/presentation/screens/auth/pin_setup_screen.dart'; // Importa PinSetupScreen
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
 
 class PinValidationScreen extends StatefulWidget {
   const PinValidationScreen({super.key});
@@ -13,110 +13,209 @@ class PinValidationScreen extends StatefulWidget {
 
 class _PinValidationScreenState extends State<PinValidationScreen> {
   final TextEditingController _pinController = TextEditingController();
+  bool _loading = true;
+  bool _hasPin = false;
+  bool _obscure = true;
   String? _storedPin;
+  String? _error;
+  final String _boxName = 'app_settings';
+  final String _pinKey = 'pinCode';
 
   @override
   void initState() {
     super.initState();
-    _loadStoredPin();
+    _initHiveAndLoadPin();
   }
 
-  Future<void> _loadStoredPin() async {
-    final prefs = await SharedPreferences.getInstance();
+  Future<void> _initHiveAndLoadPin() async {
+    try {
+      // Abre la caja de settings si no está abierta
+      if (!Hive.isBoxOpen(_boxName)) {
+        await Hive.openBox(_boxName);
+      }
+      final box = Hive.box(_boxName);
+      final value = box.get(_pinKey);
+      if (value != null && value is String && value.trim().isNotEmpty) {
+        _storedPin = value;
+        _hasPin = true;
+      } else {
+        _storedPin = null;
+        _hasPin = false;
+      }
+    } catch (e) {
+      // Si hay error, asumimos que no hay PIN y mostramos UI para crearlo
+      _storedPin = null;
+      _hasPin = false;
+      // opcional: puedes loguear el error
+      // print('Error leyendo PIN desde Hive: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _savePin(String pin) async {
+    final box = Hive.box(_boxName);
+    await box.put(_pinKey, pin);
+    _storedPin = pin;
+    _hasPin = true;
+  }
+
+  Future<void> _deletePin() async {
+    final box = Hive.box(_boxName);
+    await box.delete(_pinKey);
+    _storedPin = null;
+    _hasPin = false;
+  }
+
+  void _onValidatePressed() {
+    final input = _pinController.text.trim();
     setState(() {
-      _storedPin = prefs.getString('user_pin');
+      _error = null;
     });
+
+    if (input.isEmpty) {
+      setState(() => _error = 'Por favor ingresa el PIN.');
+      return;
+    }
+
+    // Si no hay PIN guardado, en este flujo interpretamos que está creando PIN
+    if (!_hasPin) {
+      if (input.length < 4) {
+        setState(() => _error = 'El PIN debe tener al menos 4 dígitos.');
+        return;
+      }
+      _savePin(input).then((_) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN guardado correctamente')));
+          _pinController.clear();
+          // Navegar a home
+          Navigator.pushReplacementNamed(context, '/home');
+        }
+      }).catchError((e) {
+        setState(() => _error = 'Error al guardar PIN: $e');
+      });
+      return;
+    }
+
+    // Si hay PIN guardado, validamos
+    if (_storedPin == input) {
+      // PIN correcto -> navega a home (reemplazando)
+      Navigator.pushReplacementNamed(context, '/home');
+    } else {
+      setState(() {
+        _error = 'PIN incorrecto. Intenta de nuevo.';
+      });
+    }
   }
 
-  void _validatePin() {
-    if (_pinController.text == _storedPin) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN correcto. Acceso concedido.')),
-      );
-      // Navega a HomeScreen usando la ruta nombrada
-      Navigator.of(context).pushReplacementNamed('/home');
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN incorrecto. Intenta de nuevo.')),
-      );
+  void _onForgotPin() async {
+    // Confirmación antes de eliminar PIN
+    final shouldReset = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Olvidé PIN'),
+        content: const Text('¿Deseas eliminar el PIN guardado y configurar uno nuevo?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Eliminar')),
+        ],
+      ),
+    );
+
+    if (shouldReset == true) {
+      await _deletePin();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN eliminado. Ingresa uno nuevo.')));
+        setState(() {
+          _pinController.clear();
+          _error = null;
+        });
+      }
     }
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_storedPin == null) {
-      // Muestra un indicador de carga o redirige si el PIN no está cargado
-      return const Scaffold(
-        body: Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
-    }
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Validar PIN'),
-        centerTitle: true,
-        elevation: 0,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Text(
-              'Ingresa tu PIN de seguridad para continuar.',
-              style: TextStyle(fontSize: 18),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _pinController,
-              keyboardType: TextInputType.number,
-              obscureText: true,
-              maxLength: 4,
-              decoration: const InputDecoration(
-                labelText: 'Ingresa tu PIN',
-                border: OutlineInputBorder(),
+  Widget _buildContent() {
+    final subtitle = _hasPin ? 'Ingresa tu PIN' : 'Crea un PIN de acceso (mín. 4 dígitos)';
+    final actionLabel = _hasPin ? 'Validar PIN' : 'Crear PIN';
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.lock, size: 72, color: Theme.of(context).primaryColor),
+        const SizedBox(height: 12),
+        Text('Validación de credenciales', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Text(subtitle, style: const TextStyle(color: Colors.grey)),
+        const SizedBox(height: 20),
+        SizedBox(
+          width: 260,
+          child: TextField(
+            controller: _pinController,
+            keyboardType: TextInputType.number,
+            obscureText: _obscure,
+            maxLength: 8,
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              labelText: 'PIN',
+              counterText: '',
+              errorText: _error,
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _obscure = !_obscure),
               ),
             ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _validatePin,
-              child: const Text('Validar PIN'),
-            ),
-            const SizedBox(height: 20),
-            TextButton(
-              onPressed: () {
-                showDialog(
-                  context: context,
-                  builder: (ctx) => AlertDialog(
-                    title: const Text('Reiniciar Aplicación'),
-                    content: const Text('Esto borrará tu PIN y datos. ¿Estás seguro?'),
-                    actions: [
-                      TextButton(
-                        onPressed: () => Navigator.of(ctx).pop(),
-                        child: const Text('Cancelar'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () async {
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.remove('user_pin');
-                          Navigator.of(ctx).pushAndRemoveUntil(
-                            MaterialPageRoute(builder: (context) => const PinSetupScreen()),
-                            (Route<dynamic> route) => false,
-                          );
-                        },
-                        child: const Text('Borrar PIN y Reiniciar'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-              child: const Text('¿Olvidaste tu PIN? Reiniciar'),
-            ),
-          ],
+            onSubmitted: (_) => _onValidatePressed(),
+          ),
         ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: 260,
+          child: ElevatedButton(
+            onPressed: _onValidatePressed,
+            child: Text(actionLabel),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (_hasPin)
+          TextButton(
+            onPressed: _onForgotPin,
+            child: const Text('Olvidé mi PIN / Resetear'),
+          ),
+        const SizedBox(height: 20),
+        Text('Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      // Mantén el AppBar si tu diseño lo requiere. Lo dejamos simple.
+      appBar: AppBar(title: const Text('Validación de Credenciales')),
+      body: Center(
+        child: _loading
+            ? Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: const [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 12),
+                  Text('Validando credenciales...'),
+                ],
+              )
+            : SingleChildScrollView(
+                padding: const EdgeInsets.all(24.0),
+                child: Center(child: _buildContent()),
+              ),
       ),
     );
   }
