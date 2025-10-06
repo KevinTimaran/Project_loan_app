@@ -29,6 +29,22 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   late Future<LoanModel?> _loanDetailsFuture;
   List<Map<String, dynamic>> _computedSchedule = [];
 
+  /// Formatea un ID (UUID o numérico) en 5 dígitos numéricos
+  String _formatIdAsFiveDigits(dynamic rawId) {
+    if (rawId == null) return '00000';
+    
+    final rawString = rawId.toString();
+    final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digitsOnly.isEmpty) {
+      return '00000';
+    } else if (digitsOnly.length <= 5) {
+      return digitsOnly.padLeft(5, '0');
+    } else {
+      return digitsOnly.substring(digitsOnly.length - 5);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -63,19 +79,16 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   }
 
   Future<void> _launchWhatsApp(BuildContext context, String whatsappNumber) async {
-    final Uri whatsappUri = Uri.parse('whatsapp://send?phone=$whatsappNumber');
-    if (await canLaunchUrl(whatsappUri)) {
-      await launchUrl(whatsappUri);
+    // ✅ Corregido: eliminar espacio en la URL de WhatsApp
+    final cleanNumber = whatsappNumber.replaceAll(RegExp(r'[^\d+]'), '');
+    final Uri webWhatsappUri = Uri.parse('https://wa.me/$cleanNumber');
+    if (await canLaunchUrl(webWhatsappUri)) {
+      await launchUrl(webWhatsappUri, mode: LaunchMode.externalApplication);
     } else {
-      final Uri webWhatsappUri = Uri.parse('https://wa.me/$whatsappNumber');
-      if (await canLaunchUrl(webWhatsappUri)) {
-        await launchUrl(webWhatsappUri, mode: LaunchMode.externalApplication);
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('No se pudo abrir WhatsApp para $whatsappNumber')),
-          );
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir WhatsApp para $whatsappNumber')),
+        );
       }
     }
   }
@@ -189,11 +202,13 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ✅ Formatear el ID del préstamo para mostrar en el título
+    final loanIdDisplay = _formatIdAsFiveDigits(widget.loan.id);
     final currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Detalles del Préstamo #${widget.loan.loanNumber}'),
+        title: Text('Detalles del Préstamo #$loanIdDisplay'), // ✅ Corregido: ya no muestra "null"
       ),
       body: FutureBuilder<LoanModel?>(
         future: _loanDetailsFuture,

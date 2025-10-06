@@ -14,11 +14,13 @@ import 'package:loan_app/presentation/screens/payments/daily_payments_screen.dar
 import 'package:loan_app/presentation/screens/loans/active_loans_screen.dart';
 import 'package:loan_app/presentation/screens/payments/weekly_payments_screen.dart';
 import 'package:loan_app/presentation/screens/payments/today_collection_screen.dart';
-// ✅ Importaciones agregadas para la pestaña de Historial
+import 'package:loan_app/presentation/screens/loans/simulator_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
 import 'package:intl/intl.dart';
+// ✅ Importar la pantalla de historial real
+import 'package:loan_app/presentation/screens/payments/payment_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -116,6 +118,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al borrar las bases de datos: $e')),
       );
+    }
+  }
+
+  /// Formatea un ID (UUID o numérico) en 5 dígitos numéricos
+  String _formatIdAsFiveDigits(dynamic rawId) {
+    if (rawId == null) return '00000';
+    
+    final rawString = rawId.toString();
+    final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digitsOnly.isEmpty) {
+      return '00000';
+    } else if (digitsOnly.length <= 5) {
+      return digitsOnly.padLeft(5, '0');
+    } else {
+      return digitsOnly.substring(digitsOnly.length - 5);
     }
   }
 
@@ -337,6 +355,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           onTap: () => Navigator.of(context).pushNamed('/addPayment'),
                           iconColor: kPurpleModule,
                         ),
+
+                        // Tarjeta Simulador (agregar dentro de children de tu GridView)
+                        _buildFeatureCard(
+                          context,
+                          icon: Icons.calculate,
+                          title: 'Simulador',
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (context) => const SimulatorScreen()),
+                          ),
+                          iconColor: Colors.teal,
+                        ),
+
                         _buildFeatureCard(
                           context,
                           icon: Icons.calendar_today,
@@ -346,6 +376,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                           iconColor: kHeaderColor,
                         ),
+                        // ✅ Corregido: Navegar a PaymentHistoryScreen
                         Card(
                           elevation: 4,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -355,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             title: const Text('Historial de Préstamos', textAlign: TextAlign.center),
                             onTap: () => Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),
+                              MaterialPageRoute(builder: (context) => const PaymentHistoryScreen()),
                             ),
                           ),
                         ),
@@ -398,7 +429,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
 
             // === Pestaña 3: HISTORIAL ===
-            // ✅ Reemplazado el mensaje de "Próximamente" con la lista real de préstamos
+            // ✅ Filtrar SOLO préstamos pagados
             Consumer<LoanProvider>(
               builder: (context, loanProvider, child) {
                 if (loanProvider.isLoading || _isLoadingClients) {
@@ -409,26 +440,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     child: Text('Error: ${loanProvider.errorMessage}'),
                   );
                 }
-                if (loanProvider.loans.isEmpty) {
+
+                // ✅ FILTRO CLAVE: Solo préstamos pagados
+                final paidLoans = loanProvider.loans
+                    .where((loan) => loan.status == 'pagado')
+                    .toList();
+
+                if (paidLoans.isEmpty) {
                   return const Center(
-                    child: Text('No hay préstamos registrados.'),
+                    child: Text('No hay préstamos pagados aún.'),
                   );
                 }
 
                 final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
 
                 return ListView.builder(
-                  itemCount: loanProvider.loans.length,
+                  itemCount: paidLoans.length,
                   itemBuilder: (context, index) {
-                    final loan = loanProvider.loans[index];
+                    final loan = paidLoans[index];
                     final client = _clientCache[loan.clientId];
                     final clientName = client != null ? '${client.name} ${client.lastName}' : 'Cliente no encontrado';
+                    final loanIdDisplay = _formatIdAsFiveDigits(loan.id); // ✅ ID en 5 dígitos
 
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: ListTile(
                         leading: const Icon(Icons.history),
-                        title: Text('Préstamo #${loan.id.substring(0, 5)} - ${currencyFormatter.format(loan.amount)}'),
+                        title: Text('Préstamo #$loanIdDisplay - ${currencyFormatter.format(loan.amount)}'),
                         subtitle: Text('Cliente: $clientName\nEstado: ${loan.status}'),
                         trailing: const Icon(Icons.arrow_forward_ios),
                         onTap: () {
