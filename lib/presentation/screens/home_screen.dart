@@ -19,8 +19,7 @@ import 'package:provider/provider.dart';
 import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
 import 'package:intl/intl.dart';
-// ✅ Importar la pantalla de historial real
-import 'package:loan_app/presentation/screens/payments/payment_history_screen.dart';
+
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -118,22 +117,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error al borrar las bases de datos: $e')),
       );
-    }
-  }
-
-  /// Formatea un ID (UUID o numérico) en 5 dígitos numéricos
-  String _formatIdAsFiveDigits(dynamic rawId) {
-    if (rawId == null) return '00000';
-    
-    final rawString = rawId.toString();
-    final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
-    
-    if (digitsOnly.isEmpty) {
-      return '00000';
-    } else if (digitsOnly.length <= 5) {
-      return digitsOnly.padLeft(5, '0');
-    } else {
-      return digitsOnly.substring(digitsOnly.length - 5);
     }
   }
 
@@ -376,7 +359,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                           iconColor: kHeaderColor,
                         ),
-                        // ✅ Corregido: Navegar a PaymentHistoryScreen
                         Card(
                           elevation: 4,
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -386,7 +368,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             title: const Text('Historial de Préstamos', textAlign: TextAlign.center),
                             onTap: () => Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (context) => const PaymentHistoryScreen()),
+                              MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),
                             ),
                           ),
                         ),
@@ -429,7 +411,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
 
             // === Pestaña 3: HISTORIAL ===
-            // ✅ Filtrar SOLO préstamos pagados
+            // ✅ Reemplazado el mensaje de "Próximamente" con la lista real de préstamos
             Consumer<LoanProvider>(
               builder: (context, loanProvider, child) {
                 if (loanProvider.isLoading || _isLoadingClients) {
@@ -440,33 +422,26 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     child: Text('Error: ${loanProvider.errorMessage}'),
                   );
                 }
-
-                // ✅ FILTRO CLAVE: Solo préstamos pagados
-                final paidLoans = loanProvider.loans
-                    .where((loan) => loan.status == 'pagado')
-                    .toList();
-
-                if (paidLoans.isEmpty) {
+                if (loanProvider.loans.isEmpty) {
                   return const Center(
-                    child: Text('No hay préstamos pagados aún.'),
+                    child: Text('No hay préstamos registrados.'),
                   );
                 }
 
                 final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
 
                 return ListView.builder(
-                  itemCount: paidLoans.length,
+                  itemCount: loanProvider.loans.length,
                   itemBuilder: (context, index) {
-                    final loan = paidLoans[index];
+                    final loan = loanProvider.loans[index];
                     final client = _clientCache[loan.clientId];
                     final clientName = client != null ? '${client.name} ${client.lastName}' : 'Cliente no encontrado';
-                    final loanIdDisplay = _formatIdAsFiveDigits(loan.id); // ✅ ID en 5 dígitos
 
                     return Card(
                       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       child: ListTile(
                         leading: const Icon(Icons.history),
-                        title: Text('Préstamo #$loanIdDisplay - ${currencyFormatter.format(loan.amount)}'),
+                        title: Text('Préstamo #${loan.id.substring(0, 5)} - ${currencyFormatter.format(loan.amount)}'),
                         subtitle: Text('Cliente: $clientName\nEstado: ${loan.status}'),
                         trailing: const Icon(Icons.arrow_forward_ios),
                         onTap: () {
