@@ -9,7 +9,7 @@ part 'loan_model.g.dart';
 class LoanModel extends HiveObject {
   // === Mantener los mismos índices que tu adapter generado (.g.dart) ===
   @HiveField(0)
-  late final String id; // ahora no nulo (se garantiza en el constructor)
+  late final String id;
 
   @HiveField(1)
   late final String clientId;
@@ -59,15 +59,12 @@ class LoanModel extends HiveObject {
   @HiveField(16)
   late double totalPaid;
 
-  // NOTE: el índice 17 en tu adapter era remainingBalance
   @HiveField(17)
   late double remainingBalance;
 
-  // payments en la posición 18 (lo dejamos no nulo en runtime)
   @HiveField(18)
   late List<Payment> payments;
 
-  // paymentDates en la posición 19 (no nulo en runtime)
   @HiveField(19)
   late List<DateTime> paymentDates;
 
@@ -109,49 +106,58 @@ class LoanModel extends HiveObject {
         totalAmountToPay = totalAmountToPay,
         calculatedPaymentAmount = calculatedPaymentAmount,
         totalPaid = totalPaid,
-        remainingBalance = remainingBalance ?? (totalAmountToPay ?? amount),
+        // ✅ Inicializar remainingBalance con lógica robusta
+        remainingBalance = remainingBalance ??
+            (totalAmountToPay != null && totalAmountToPay > 0
+                ? totalAmountToPay
+                : amount),
         payments = payments ?? <Payment>[],
         paymentDates = (paymentDates ?? <DateTime>[]).map((d) => DateTime(d.year, d.month, d.day)).toList();
 
-  /// Comprueba si ya está totalmente pagado
+  /// Comprueba si ya está totalmente pagado (con tolerancia más amplia para residuales)
   bool get isFullyPaid {
-    // Si totalAmountToPay está definido, compararlo con totalPaid
-    if (totalAmountToPay != null) {
-      return totalPaid >= totalAmountToPay!;
-    }
-    // Si no, comparar remainingBalance
-    return remainingBalance <= 0.0;
+    // ✅ MEJORADO: Tolerancia más amplia para residuales pequeños comunes
+    return remainingBalance <= 0.50; // Hasta 50 centavos se considera pagado
   }
 
-  /// Devuelve una versión corta del id (5 dígitos o menos) para UI
+  /// Devuelve una versión corta del id (5 dígitos numéricos)
   String get shortId {
-    // Extrae solo dígitos y toma últimos/primeros según prefieras
     final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) {
-      return id.length <= 5 ? id : id.substring(0, 5);
-    }
-    return digits.length <= 5 ? digits : digits.substring(digits.length - 5);
+    if (digits.isEmpty) return '00000';
+    return digits.length <= 5 ? digits.padLeft(5, '0') : digits.substring(digits.length - 5);
   }
 
   /// Registra un pago en el préstamo (actualiza listas y saldos).
-  /// No es async: actualiza campos en memoria; si quieres persistir, llama a save() en el LoanModel (HiveObject).
   void registerPayment(Payment payment) {
-    payments.add(payment);
-    totalPaid = (totalPaid) + payment.amount;
-    remainingBalance = (remainingBalance - payment.amount).clamp(0.0, double.infinity);
-    if (remainingBalance <= 0.0) {
+    // ✅ Convertir todo a centavos para precisión exacta
+    final int paymentCents = (payment.amount * 100).round();
+    final int currentRemainingCents = (remainingBalance * 100).round();
+
+    // Calcular nuevo saldo en centavos
+    int newRemainingCents = currentRemainingCents - paymentCents;
+    if (newRemainingCents < 0) newRemainingCents = 0;
+
+    // Actualizar montos en pesos (double) con 2 decimales exactos
+    remainingBalance = newRemainingCents / 100.0;
+    totalPaid += payment.amount;
+
+    // ✅ MEJORADO: Marcar como pagado si el saldo es <= 50 centavos (residuales comunes)
+    if (remainingBalance <= 0.50) {
+      remainingBalance = 0.0;
       status = 'pagado';
     }
-    // opcional: persistir automáticamente
+
+    // Añadir el pago
+    payments.add(payment);
+
+    // Persistir en Hive si es posible
     try {
       save();
     } catch (_) {
-      // Si no puedes salvar (p. ej. antes de estar en Hive), se ignora silenciosamente:
-      // el caller puede decidir persistir usando LoanRepository/LoanProvider.
+      // Ignorar si no está en Hive
     }
   }
 
-  /// Actualiza el estado (y persiste tente si es posible)
   void updateStatus(String newStatus) {
     status = newStatus;
     try {
@@ -159,12 +165,10 @@ class LoanModel extends HiveObject {
     } catch (_) {}
   }
 
-  /// Normaliza paymentDates a 00:00 por seguridad (útil en migraciones)
   void normalizePaymentDatesIfNeeded() {
     paymentDates = paymentDates.map((d) => DateTime(d.year, d.month, d.day)).toList();
   }
 
-  /// Copia con override de campos (útil en ediciones)
   LoanModel copyWith({
     String? id,
     String? clientId,

@@ -11,6 +11,8 @@ import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
+// ✅ Importar la pantalla de detalle
+import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
 
 class PaymentHistoryScreen extends StatefulWidget {
   const PaymentHistoryScreen({super.key});
@@ -43,125 +45,140 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
   /// Formatea un ID en 5 dígitos (igual que en tu código original)
   String _formatIdAsFiveDigits(dynamic rawId) {
-  if (rawId == null) return '00000';
-  
-  final rawString = rawId.toString();
-  // Extraer SOLO los dígitos
-  final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
-  
-  if (digitsOnly.isEmpty) {
-    // Si no hay dígitos, usar 00000
-    return '00000';
-  } else if (digitsOnly.length <= 5) {
-    // Completar con ceros a la izquierda
-    return digitsOnly.padLeft(5, '0');
-  } else {
-    // Tomar los últimos 5 dígitos
-    return digitsOnly.substring(digitsOnly.length - 5);
+    if (rawId == null) return '00000';
+    
+    final rawString = rawId.toString();
+    // Extraer SOLO los dígitos
+    final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digitsOnly.isEmpty) {
+      // Si no hay dígitos, usar 00000
+      return '00000';
+    } else if (digitsOnly.length <= 5) {
+      // Completar con ceros a la izquierda
+      return digitsOnly.padLeft(5, '0');
+    } else {
+      // Tomar los últimos 5 dígitos
+      return digitsOnly.substring(digitsOnly.length - 5);
+    }
   }
-}
 
+  Future<void> _loadPaidLoans() async {
+    setState(() {
+      _isLoading = true;
+      _paidLoans = [];
+      _clientNamesMap.clear();
+      _loadErrorMessage = null;
+    });
 
- Future<void> _loadPaidLoans() async {
-  setState(() {
-    _isLoading = true;
-    _paidLoans = [];
-    _clientNamesMap.clear();
-    _loadErrorMessage = null;
-  });
-
-  try {
-    final allLoans = await _loanRepository.getAllLoans();
-    if (allLoans == null) {
-      throw Exception('Respuesta nula de la base de datos');
-    }
-
-    // ✅ FILTRO ROBUSTO: solo préstamos NO NULOS y con status 'pagado'
-    final paidLoans = allLoans
-        .where((loan) => 
-            loan != null && 
-            loan.status != null && 
-            loan.status == 'pagado')
-        .toList();
-
-    // Cargar nombres de clientes
-    final uniqueClientIds = <String>{};
-    for (final loan in paidLoans) {
-      final cid = loan.clientId?.toString()?.trim();
-      if (cid != null && cid.isNotEmpty) {
-        uniqueClientIds.add(cid);
+    try {
+      final allLoans = await _loanRepository.getAllLoans();
+      if (allLoans == null) {
+        throw Exception('Respuesta nula de la base de datos');
       }
-    }
 
-    if (uniqueClientIds.isNotEmpty) {
-      final clientFutures = uniqueClientIds.map((cid) async {
-        try {
-          final client = await _clientRepository.getClientById(cid);
-          final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
-          return MapEntry(cid, name.isEmpty ? 'Cliente desconocido' : name);
-        } catch (_) {
-          return MapEntry(cid, 'Cliente desconocido');
+      // ✅ FILTRO ROBUSTO: solo préstamos NO NULOS y con status 'pagado'
+      final paidLoans = allLoans
+          .where((loan) => 
+              loan != null && 
+              loan.status != null && 
+              loan.status == 'pagado')
+          .toList();
+
+      // Cargar nombres de clientes
+      final uniqueClientIds = <String>{};
+      for (final loan in paidLoans) {
+        final cid = loan.clientId?.toString()?.trim();
+        if (cid != null && cid.isNotEmpty) {
+          uniqueClientIds.add(cid);
         }
-      });
+      }
 
-      final clientEntries = await Future.wait(clientFutures);
-      for (final entry in clientEntries) {
-        _clientNamesMap[entry.key] = entry.value;
+      if (uniqueClientIds.isNotEmpty) {
+        final clientFutures = uniqueClientIds.map((cid) async {
+          try {
+            final client = await _clientRepository.getClientById(cid);
+            final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
+            return MapEntry(cid, name.isEmpty ? 'Cliente desconocido' : name);
+          } catch (_) {
+            return MapEntry(cid, 'Cliente desconocido');
+          }
+        });
+
+        final clientEntries = await Future.wait(clientFutures);
+        for (final entry in clientEntries) {
+          _clientNamesMap[entry.key] = entry.value;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _paidLoans = paidLoans;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        final msg = 'Error al cargar historial: ${e.toString()}';
+        setState(() {
+          _isLoading = false;
+          _loadErrorMessage = msg;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
       }
     }
-
-    if (mounted) {
-      setState(() {
-        _paidLoans = paidLoans;
-        _isLoading = false;
-      });
-    }
-  } catch (e) {
-    if (mounted) {
-      final msg = 'Error al cargar historial: ${e.toString()}';
-      setState(() {
-        _isLoading = false;
-        _loadErrorMessage = msg;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
-    }
   }
-}
+
   Widget _buildLoanTile(LoanModel loan) {
-  final clientKey = loan.clientId?.toString() ?? '';
-  final clientName = _clientNamesMap[clientKey] ?? 'Cliente desconocido';
+    final clientKey = loan.clientId?.toString() ?? '';
+    final clientName = _clientNamesMap[clientKey] ?? 'Cliente desconocido';
 
-  // ✅ Usar ID del préstamo (no del cliente) y formatear a 5 dígitos
-  final loanIdDisplay = _formatIdAsFiveDigits(loan.id);
-  final paidDateText = loan.dueDate != null ? _dateFormatter.format(loan.dueDate!) : 'Fecha no registrada';
-  final totalPaid = loan.totalAmountToPay ?? 0.0;
+    // ✅ Usar ID del préstamo (no del cliente) y formatear a 5 dígitos
+    final loanIdDisplay = _formatIdAsFiveDigits(loan.id);
+    
+    // ✅ Obtener la fecha REAL del último pago (más precisa que dueDate)
+    DateTime? lastPaymentDate;
+    if (loan.payments != null && loan.payments!.isNotEmpty) {
+      lastPaymentDate = loan.payments!.reduce((a, b) => a.date.isAfter(b.date) ? a : b).date;
+    }
+    final paidDateText = lastPaymentDate != null 
+        ? _dateFormatter.format(lastPaymentDate) 
+        : loan.dueDate != null 
+            ? _dateFormatter.format(loan.dueDate!) 
+            : 'Fecha no registrada';
 
-  return Card(
-    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-    child: ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      leading: const CircleAvatar(
-        backgroundColor: Colors.green,
-        child: Icon(Icons.check, color: Colors.white),
+    final totalPaid = loan.totalAmountToPay ?? 0.0;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        leading: const CircleAvatar(
+          backgroundColor: Colors.green,
+          child: Icon(Icons.check, color: Colors.white),
+        ),
+        title: Text(
+          'Préstamo #$loanIdDisplay',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          '$clientName\nPagado: $paidDateText',
+          maxLines: 2,
+        ),
+        trailing: Text(
+          _currencyFormatter.format(totalPaid),
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+        ),
+        onTap: () {
+          // ✅ Navegar al detalle del préstamo
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => LoanDetailScreen(loan: loan)),
+          );
+        },
       ),
-      title: Text(
-        'Préstamo #$loanIdDisplay', // ✅ Título corregido: ya no dice "null"
-        style: const TextStyle(fontWeight: FontWeight.bold),
-      ),
-      subtitle: Text(
-        '$clientName\nPagado: $paidDateText',
-        maxLines: 2,
-      ),
-      trailing: Text(
-        _currencyFormatter.format(totalPaid),
-        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
-      ),
-      onTap: () {
-        // Navegación a detalle (opcional)
-      },
-    ),
-  );
-}
+    );
+  }
 
   Widget _buildBody() {
     if (_isLoading) {

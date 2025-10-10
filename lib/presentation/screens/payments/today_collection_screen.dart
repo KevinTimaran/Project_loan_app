@@ -1,3 +1,4 @@
+// lib/presentation/screens/payments/today_collection_screen.dart
 //#################################################
 //#  Pantalla de Cobros de Hoy                   #//
 //#  Muestra préstamos activos con vencimiento    #//
@@ -11,6 +12,7 @@ import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
+import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
 
 class TodayCollectionScreen extends StatefulWidget {
   const TodayCollectionScreen({super.key});
@@ -20,144 +22,294 @@ class TodayCollectionScreen extends StatefulWidget {
 }
 
 class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
-  // Repositorios
   final ClientRepository _clientRepository = ClientRepository();
   final LoanRepository _loanRepository = LoanRepository();
 
-  // Estado
   List<LoanModel> _dailyLoans = [];
   final Map<String, String> _clientNamesMap = {};
+  final Map<String, double> _amountsDueToday = {};
   bool _isLoading = true;
   String? _loadErrorMessage;
 
-  // Fecha seleccionada (normalizada a 00:00)
   late DateTime _selectedDate;
 
-  // Formateadores / constantes
   final NumberFormat _currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
   final DateFormat _dateFormatter = DateFormat('dd/MM/yyyy');
-  static const int _expectedIdDigits = 5;
+  // ✅ MEJORADO: Generar ID corta y legible
+  String _getShortLoanId(LoanModel loan) {
+    final id = loan.id;
+    if (id.isEmpty) return '00000';
+    
+    // Extraer solo los números del ID
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digits.isEmpty) return '00000';
+    
+    // Usar los últimos 4-5 dígitos para una ID más corta
+    if (digits.length <= 4) {
+      return digits.padLeft(4, '0');
+    } else {
+      return digits.substring(digits.length - 4);
+    }
+  }
+  
+  // ✅ NUEVO: Constantes para manejo de residuales (igual que en payment_form_screen)
+  static const double _residualThreshold = 0.50; // Hasta 50 centavos se considera residual pequeño
+  static const double _roundingTolerance = 0.01; // 1 centavo de tolerancia para validación
 
   @override
   void initState() {
     super.initState();
     _selectedDate = _normalizeDate(DateTime.now());
     _loadDailyLoans();
+    
+    // ✅ NUEVO: Escuchar cambios cuando se regrese a esta pantalla
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setupRouteObserver();
+    });
+  }
+
+  // ✅ NUEVO: Configurar observador de rutas para actualización automática
+  void _setupRouteObserver() {
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      route.addScopedWillPopCallback(() async {
+        // Se ejecuta cuando se va a salir de la pantalla
+        return true;
+      });
+    }
+  }
+
+  // ✅ NUEVO: Método para actualizar automáticamente cuando se regrese
+  Future<void> _refreshOnReturn() async {
+    // Pequeño delay para asegurar que los datos se hayan guardado
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (mounted) {
+      await _loadDailyLoans();
+    }
   }
 
   DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  /// Intenta convertir una entrada (DateTime | String | int) a DateTime o devuelve null.
+  DateTime? _toDateSafe(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return DateTime(v.year, v.month, v.day);
+    if (v is int) {
+      try {
+        final dt = DateTime.fromMillisecondsSinceEpoch(v);
+        return DateTime(dt.year, dt.month, dt.day);
+      } catch (_) {
+        return null;
+      }
+    }
+    if (v is String) {
+      try {
+        final dt = DateTime.parse(v);
+        return DateTime(dt.year, dt.month, dt.day);
+      } catch (_) {
+        // intentar parse flex (dd/MM/yyyy)
+        try {
+          final parts = v.split(RegExp(r'[/\-]'));
+          if (parts.length >= 3) {
+            final d = int.parse(parts[0]);
+            final m = int.parse(parts[1]);
+            final y = int.parse(parts[2]);
+            return DateTime(y, m, d);
+          }
+        } catch (_) {}
+      }
+    }
+    return null;
+  }
+
+  /// Genera paymentDates si el loan no los tiene (fallback).
+  /// Usa frecuencia y termValue para crear una lista de fechas.
+  List<DateTime> _generatePaymentDatesFallback(LoanModel loan) {
+    final start = loan.startDate;
+    final int n = loan.termValue;
+    final freq = loan.paymentFrequency.toLowerCase();
+    if (n <= 0) return [];
+
+    List<DateTime> dates = [];
+    DateTime cur = DateTime(start.year, start.month, start.day);
+    for (int i = 0; i < n; i++) {
+      if (i > 0) {
+        if (freq == 'diario') cur = cur.add(const Duration(days: 1));
+        else if (freq == 'semanal') cur = cur.add(const Duration(days: 7));
+        else if (freq == 'quincenal') cur = cur.add(const Duration(days: 15));
+        else {
+          // mensual - añadir months de manera segura (evitar overflow de días)
+          int year = cur.year;
+          int month = cur.month + 1;
+          year += (month - 1) ~/ 12;
+          month = ((month - 1) % 12) + 1;
+          int day = cur.day;
+          int lastDayOfMonth = DateTime(year, month + 1, 0).day;
+          if (day > lastDayOfMonth) day = lastDayOfMonth;
+          cur = DateTime(year, month, day);
+        }
+      }
+      dates.add(DateTime(cur.year, cur.month, cur.day));
+    }
+    return dates;
+  }
 
   Future<void> _loadDailyLoans() async {
     setState(() {
       _isLoading = true;
       _dailyLoans = [];
       _clientNamesMap.clear();
+      _amountsDueToday.clear();
       _loadErrorMessage = null;
     });
+      List<LoanModel> dailyLoans = []; 
 
     try {
+      // ✅ MEJORADO: Forzar recarga desde la base de datos
+      debugPrint('🔄 Cargando préstamos desde la base de datos...');
       final allLoans = await _loanRepository.getAllLoans();
+      debugPrint('📊 Total de préstamos encontrados: ${allLoans?.length ?? 0}');
+
       if (allLoans == null || allLoans.isEmpty) {
         if (!mounted) return;
         setState(() {
-          _dailyLoans = [];
           _isLoading = false;
+          _dailyLoans = [];
         });
         return;
       }
 
-      final startOfDay = _normalizeDate(_selectedDate);
+      dailyLoans = []; 
 
-      final dailyLoans = <LoanModel>[];
+      final day = _normalizeDate(_selectedDate);
+      final List<LoanModel> found = [];
+
       for (final loan in allLoans) {
         try {
           if (loan == null) continue;
-          // 👇 CORRECCIÓN LÓGICA 1: Excluir solo estados no cobrables
-          if (loan.status == 'pagado' || loan.status == 'cancelado') continue;
+          final status = loan.status.toLowerCase();
+          if (status == 'pagado' || status == 'cancelado') continue;
 
-          bool hasToday = false;
-
-          // 👇 CORRECCIÓN LÓGICA 2: Unificar lógica de fechas
-          final paymentDates = loan.paymentDates;
-          if (paymentDates != null) {
-            hasToday = paymentDates.any((pd) {
-              if (pd == null) return false;
-              return _normalizeDate(pd) == startOfDay;
-            });
+          // 1) Obtener paymentDates del loan (puede venir como List<DateTime> o List<String>)
+          final rawDates = loan.paymentDates;
+          List<DateTime> paymentDates = [];
+          if (rawDates.isNotEmpty) {
+            for (final raw in rawDates) {
+              final dt = _toDateSafe(raw);
+              if (dt != null) paymentDates.add(dt);
+            }
           }
 
-          // Usar dueDate como fallback si aún no se encontró la fecha
+          // 2) Si no hay paymentDates generados, intentar fallback (a veces el modelo no las guardó)
+          if (paymentDates.isEmpty) {
+            paymentDates = _generatePaymentDatesFallback(loan);
+          }
+
+          // 3) Verificar si alguna fecha coincide con el día seleccionado
+          bool hasToday = paymentDates.any((pd) => pd.year == day.year && pd.month == day.month && pd.day == day.day);
+
+          // 4) Fallback a dueDate por compatibilidad (último recurso)
           if (!hasToday && loan.dueDate != null) {
-            hasToday = _normalizeDate(loan.dueDate!) == startOfDay;
+            final due = DateTime(loan.dueDate.year, loan.dueDate.month, loan.dueDate.day);
+            if (due.year == day.year && due.month == day.month && due.day == day.day) {
+              hasToday = true;
+            }
           }
 
           if (hasToday) {
-            dailyLoans.add(loan);
+              // ✅ MEJORADO: Aplicar lógica inteligente de residuales
+              final cuota = loan.calculatedPaymentAmount ?? 0.0;
+              final saldo = loan.remainingBalance ?? 0.0;
+              double amount = cuota;
+
+              // ✅ DEBUG: Log para entender el comportamiento
+              debugPrint('🔍 LOAN DEBUG - ID: ${loan.id}');
+              debugPrint('🔍 LOAN DEBUG - Cuota: $cuota, Saldo: $saldo');
+              debugPrint('🔍 LOAN DEBUG - isFullyPaid: ${loan.isFullyPaid}');
+              debugPrint('🔍 LOAN DEBUG - Status: ${loan.status}');
+              debugPrint('🔍 LOAN DEBUG - Total pagado: ${loan.totalPaid}');
+              debugPrint('🔍 LOAN DEBUG - Número de pagos: ${loan.payments.length}');
+              debugPrint('🔍 LOAN DEBUG - Monto total a pagar: ${loan.totalAmountToPay}');
+
+              // ✅ MEJORADO: Lógica más robusta para determinar si mostrar el préstamo
+              bool shouldShowLoan = true;
+              
+              // Verificar si está completamente pagado con múltiples criterios
+              if (loan.isFullyPaid || 
+                  loan.status.toLowerCase() == 'pagado' ||
+                  saldo <= 0.01) {
+                shouldShowLoan = false;
+                debugPrint('🔍 LOAN DEBUG - Préstamo completamente pagado, no mostrando');
+              }
+              
+              // Verificar si el monto a cobrar es válido
+              if (shouldShowLoan && amount <= _roundingTolerance) {
+                shouldShowLoan = false;
+                debugPrint('🔍 LOAN DEBUG - Monto muy pequeño, no mostrando');
+              }
+
+              if (shouldShowLoan) {
+                debugPrint('🔍 LOAN DEBUG - Agregando préstamo con monto: $amount');
+                _amountsDueToday[loan.id!] = amount;
+                dailyLoans.add(loan);
+              } else {
+                debugPrint('🔍 LOAN DEBUG - No agregando préstamo');
+              }
           }
-        } catch (_) {
+        } catch (e) {
+          // ignore individual loan errors
+          // print('ERR loan check: $e');
           continue;
         }
       }
 
-      // cargar clientes (una llamada por clientId único)
+      // ✅ CORREGIDO: cargar nombres de clientes (únicos)
       final uniqueClientIds = <String>{};
       for (final loan in dailyLoans) {
-        final cid = loan.clientId?.toString() ?? '';
+        final cid = loan.clientId;
         if (cid.isNotEmpty) uniqueClientIds.add(cid);
       }
+      
+      debugPrint('🔍 CLIENT DEBUG - IDs únicos encontrados: $uniqueClientIds');
+      if (uniqueClientIds.isNotEmpty) {
+        final futures = uniqueClientIds.map((cid) async {
+          try {
+            debugPrint('🔍 CLIENT DEBUG - Buscando cliente con ID: $cid');
+            final client = await _clientRepository.getClientById(cid);
+            final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
+            debugPrint('🔍 CLIENT DEBUG - Cliente encontrado: $name');
+            return MapEntry(cid, name.isNotEmpty ? name : 'Cliente desconocido');
+          } catch (e) {
+            debugPrint('🔍 CLIENT DEBUG - Error buscando cliente $cid: $e');
+            return MapEntry(cid, 'Cliente desconocido');
+          }
+        }).toList();
 
-      final clientFutures = uniqueClientIds.map((cid) async {
-        try {
-          final client = await _clientRepository.getClientById(cid);
-          final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
-          return MapEntry(cid, name.isNotEmpty ? name : 'Cliente desconocido');
-        } catch (_) {
-          return MapEntry(cid, 'Cliente desconocido');
-        }
-      }).toList();
-
-      final clientEntries = await Future.wait(clientFutures);
-      for (final entry in clientEntries) _clientNamesMap[entry.key] = entry.value;
-
-      if (!mounted) return;
-      setState(() {
-        _dailyLoans = dailyLoans;
-        _isLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      // 👇 CORRECCIÓN LÓGICA 5: Usar variable local para evitar ! en null
-      final errorMessage = 'Error al cargar los préstamos: $e';
-      setState(() {
-        _isLoading = false;
-        _loadErrorMessage = errorMessage;
-      });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(errorMessage)));
-    }
-  }
-
-  /// Formatea un ID en 5 dígitos
-  String _formatIdAsFiveDigits(dynamic rawId) {
-    if (rawId == null) return '00000';
-    final rawString = rawId.toString();
-
-    try {
-      final idInt = int.parse(rawString);
-      if (idInt < 0) return '00000';
-      if (idInt > 99999) return '99999'; // 👈 CORRECCIÓN LÓGICA 3: evitar % y usar límite claro
-      return idInt.toString().padLeft(_expectedIdDigits, '0');
-    } catch (_) {
-      // 👇 CORRECCIÓN LÓGICA 4: solo dígitos, y si no hay, usar 00000
-      final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
-      if (digitsOnly.isEmpty) {
-        return '00000';
-      } else {
-        if (digitsOnly.length > _expectedIdDigits) {
-          return digitsOnly.substring(digitsOnly.length - _expectedIdDigits);
-        } else {
-          return digitsOnly.padLeft(_expectedIdDigits, '0');
+        final entries = await Future.wait(futures);
+        for (final e in entries) {
+          _clientNamesMap[e.key] = e.value;
         }
       }
+
+      if (!mounted) return;
+      setState(() {
+        _dailyLoans = dailyLoans; // ✅ CORREGIDO: Usar dailyLoans en lugar de found
+        _isLoading = false;
+      });
+      
+      // ✅ DEBUG: Resumen final
+      debugPrint('📋 RESUMEN FINAL:');
+      debugPrint('📋 Préstamos procesados: ${dailyLoans.length}');
+      debugPrint('📋 Total a cobrar: ${dailyLoans.fold<double>(0.0, (sum, loan) => sum + (_amountsDueToday[loan.id!] ?? 0.0))}');
+    } catch (e) {
+      if (!mounted) return;
+      final msg = 'Error al cargar cobros: $e';
+      setState(() {
+        _isLoading = false;
+        _loadErrorMessage = msg;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
     }
   }
 
@@ -179,7 +331,17 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Widget _buildHeader(BuildContext context) {
     final dateLabel = _dateFormatter.format(_selectedDate);
-    final totalAmount = _dailyLoans.fold<double>(0.0, (sum, loan) => sum + (loan.remainingBalance ?? 0.0));
+    final totalAmount = _dailyLoans.fold<double>(0.0, (sum, loan) {
+      final key = loan.id?.toString() ?? loan.clientId?.toString() ?? '';
+      return sum + (_amountsDueToday[key] ?? 0.0);
+    });
+
+    // ✅ MEJORADO: Calcular estadísticas adicionales
+    final residualLoans = _dailyLoans.where((loan) => (loan.remainingBalance ?? 0) <= _residualThreshold).length;
+    final almostPaidLoans = _dailyLoans.where((loan) {
+      final saldo = loan.remainingBalance ?? 0;
+      return saldo > _residualThreshold && saldo <= 1.0;
+    }).length;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
@@ -214,11 +376,27 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
             elevation: 2,
             child: Padding(
               padding: const EdgeInsets.all(14.0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
+              child: Column(
                 children: [
-                  _buildSummaryItem('Préstamos Vencidos', _dailyLoans.length.toString(), Icons.account_balance_wallet),
-                  _buildSummaryItem('Total a Cobrar', _currencyFormatter.format(totalAmount), Icons.attach_money),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildSummaryItem('Préstamos Vencidos', _dailyLoans.length.toString(), Icons.account_balance_wallet),
+                      _buildSummaryItem('Total a Cobrar', _currencyFormatter.format(totalAmount), Icons.attach_money),
+                    ],
+                  ),
+                  if (residualLoans > 0 || almostPaidLoans > 0) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        if (residualLoans > 0)
+                          _buildSummaryItem('Residuales', residualLoans.toString(), Icons.info, Colors.orange),
+                        if (almostPaidLoans > 0)
+                          _buildSummaryItem('Casi Pagados', almostPaidLoans.toString(), Icons.trending_down, Colors.blue),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -232,33 +410,134 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
     final clientKey = loan.clientId?.toString() ?? '';
     final clientName = _clientNamesMap[clientKey] ?? 'Cliente desconocido';
 
-    final loanIdDisplay = _formatIdAsFiveDigits(loan.id);
+    // ✅ MEJORADO: Usar ID corta y legible
+    final loanIdDisplay = _getShortLoanId(loan);
+
     final dueDateText = loan.dueDate != null ? _dateFormatter.format(loan.dueDate!) : 'Fecha desconocida';
-    final remaining = loan.remainingBalance ?? 0.0;
+    final key = loan.id?.toString() ?? loan.clientId?.toString() ?? '';
+    final amountDueToday = _amountsDueToday[key] ?? 0.0;
+    final saldo = loan.remainingBalance ?? 0.0;
+
+    // ✅ MEJORADO: Determinar el tipo de indicador visual
+    Color? cardColor;
+    IconData statusIcon = Icons.account_balance_wallet;
+    String statusText = '';
+    
+    if (loan.isFullyPaid) {
+      cardColor = Colors.green[50];
+      statusIcon = Icons.check_circle;
+      statusText = 'PAGADO';
+    } else if (saldo <= _residualThreshold) {
+      cardColor = Colors.orange[50];
+      statusIcon = Icons.info;
+      statusText = 'RESIDUAL';
+    } else if (saldo <= 1.0) {
+      cardColor = Colors.blue[50];
+      statusIcon = Icons.trending_down;
+      statusText = 'CASI PAGADO';
+    }
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      color: cardColor,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         leading: CircleAvatar(
           backgroundColor: Theme.of(context).primaryColor,
-          child: const Icon(Icons.account_balance_wallet, color: Colors.white),
+          child: Icon(statusIcon, color: Colors.white),
         ),
-        title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text('Préstamo #$loanIdDisplay • Vence: $dueDateText'),
-        trailing: Text(_currencyFormatter.format(remaining), style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red)),
-        onTap: () {
-          // Navegación a detalle del préstamo (opcional)
+        title: Row(
+          children: [
+            Expanded(child: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold))),
+            if (statusText.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Préstamo #$loanIdDisplay • Vence: $dueDateText'),
+            if (saldo <= _residualThreshold)
+              Text(
+                'Saldo residual: ${_currencyFormatter.format(saldo)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.orange[800],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              _currencyFormatter.format(amountDueToday),
+              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+            ),
+            if (saldo <= _residualThreshold)
+              Text(
+                'Residual',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.orange[800],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
+        onTap: () async {
+          // ✅ MEJORADO: Actualización automática sin salir de la pantalla
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
+          );
+          
+          // ✅ Actualizar automáticamente si se registró un pago
+          if (result == true) {
+            // Mostrar indicador de carga mientras se actualiza
+            setState(() {
+              _isLoading = true;
+            });
+            
+            // ✅ MEJORADO: Esperar un poco más para asegurar que los datos se guarden
+            await Future.delayed(const Duration(milliseconds: 1000));
+            
+            // Recargar datos
+            await _loadDailyLoans();
+            
+            // Mostrar mensaje de confirmación
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Lista actualizada automáticamente'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
+          }
         },
       ),
     );
   }
 
   Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
     if (_loadErrorMessage != null) {
       return Center(
         child: Padding(
@@ -274,11 +553,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         ),
       );
     }
-
-    if (_dailyLoans.isEmpty) {
-      return const Center(child: Text('No hay cobros programados para esta fecha.'));
-    }
-
+    if (_dailyLoans.isEmpty) return const Center(child: Text('No hay cobros programados para esta fecha.'));
     return ListView.builder(
       itemCount: _dailyLoans.length,
       itemBuilder: (context, index) => _buildLoanTile(_dailyLoans[index]),
@@ -292,6 +567,26 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         title: const Text('Cobros de Hoy'),
         centerTitle: true,
         backgroundColor: const Color(0xFF1E88E5),
+        // ✅ NUEVO: Botón de actualización manual
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () async {
+              setState(() {
+                _isLoading = true;
+              });
+              await _loadDailyLoans();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🔄 Lista actualizada'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              }
+            },
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -302,10 +597,10 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
     );
   }
 
-  Widget _buildSummaryItem(String title, String value, IconData icon) {
+  Widget _buildSummaryItem(String title, String value, IconData icon, [Color? iconColor]) {
     return Column(
       children: [
-        Icon(icon, size: 28, color: Theme.of(context).primaryColor),
+        Icon(icon, size: 28, color: iconColor ?? Theme.of(context).primaryColor),
         const SizedBox(height: 6),
         Text(title, style: Theme.of(context).textTheme.bodyLarge),
         const SizedBox(height: 6),

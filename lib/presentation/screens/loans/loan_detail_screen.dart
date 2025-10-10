@@ -108,98 +108,97 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   }
 
   // ---------- FUNCIÓN CORREGIDA PARA CRONOGRAMA ----------
-  List<Map<String, dynamic>> buildAnnuitySchedule({
-    required double principal,
-    required double annualRatePercent,
-    required int numberOfPayments,
-    required String frequency,
-    required DateTime startDate,
-  }) {
-    final periodsPerYear = _periodsPerYearForFrequency(frequency);
-    final annualRate = annualRatePercent / 100.0;
-    final r = (periodsPerYear > 0) ? (annualRate / periodsPerYear) : 0.0;
+ List<Map<String, dynamic>> buildAnnuitySchedule({
+  required double principal,
+  required double annualRatePercent,
+  required int numberOfPayments,
+  required String frequency,
+  required DateTime startDate,
+}) {
+  final periodsPerYear = _periodsPerYearForFrequency(frequency);
+  final annualRate = annualRatePercent / 100.0;
+  final r = (periodsPerYear > 0) ? (annualRate / periodsPerYear) : 0.0;
 
-    final principalCents = (principal * 100).round();
-    final n = numberOfPayments;
-    if (n <= 0) return [];
+  final principalCents = (principal * 100).round();
+  final n = numberOfPayments;
+  if (n <= 0) return [];
 
-    double payment;
-    if (r > 0) {
-      final denom = 1 - pow(1 + r, -n);
-      payment = denom == 0 ? principal / n : principal * r / denom;
+  double payment;
+  if (r > 0) {
+    final denom = 1 - pow(1 + r, -n);
+    payment = denom == 0 ? principal / n : principal * r / denom;
+  } else {
+    payment = principal / n;
+  }
+
+  final paymentCentsBase = (payment * 100).floor();
+
+  List<Map<String, dynamic>> schedule = [];
+  DateTime current = startDate;
+  int remainingCents = principalCents;
+  int totalInterestAccumCents = 0;
+  int sumPaymentsCents = 0;
+
+  for (int i = 0; i < n; i++) {
+    if (frequency.toLowerCase() == 'diario') {
+      current = current.add(const Duration(days: 1));
+    } else if (frequency.toLowerCase() == 'semanal') {
+      current = current.add(const Duration(days: 7));
+    } else if (frequency.toLowerCase() == 'quincenal') {
+      current = current.add(const Duration(days: 15));
     } else {
-      payment = principal / n;
+      current = DateTime(current.year, current.month + 1, current.day);
     }
 
-    final paymentCentsBase = (payment * 100).floor();
+    final double interestForPeriod = (remainingCents / 100.0) * r;
+    int interestCents = (interestForPeriod * 100).round();
+    int principalCentsForPeriod = paymentCentsBase - interestCents;
+    if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
 
-    List<Map<String, dynamic>> schedule = [];
-    DateTime current = startDate;
-    int remainingCents = principalCents;
-    int totalInterestAccumCents = 0;
-    int sumPaymentsCents = 0;
-
-    for (int i = 0; i < n; i++) {
-      if (frequency.toLowerCase() == 'diario') {
-        current = current.add(const Duration(days: 1));
-      } else if (frequency.toLowerCase() == 'semanal') {
-        current = current.add(const Duration(days: 7));
-      } else if (frequency.toLowerCase() == 'quincenal') {
-        current = current.add(const Duration(days: 15));
-      } else {
-        current = DateTime(current.year, current.month + 1, current.day);
-      }
-
-      final double interestForPeriod = (remainingCents / 100.0) * r;
-      int interestCents = (interestForPeriod * 100).round();
-      int principalCentsForPeriod = paymentCentsBase - interestCents;
-      if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
-
-      if (i == n - 1) {
-        interestCents = ((remainingCents / 100.0) * r * 100).round();
-        principalCentsForPeriod = remainingCents;
-      }
-
-      final paymentCents = principalCentsForPeriod + interestCents;
-      remainingCents = max(0, remainingCents - principalCentsForPeriod);
-      totalInterestAccumCents += interestCents;
-      sumPaymentsCents += paymentCents;
-
-      schedule.add({
-        'index': i + 1,
-        'date': current,
-        'paymentCents': paymentCents,
-        'interestCents': interestCents,
-        'principalCents': principalCentsForPeriod,
-        'remainingCents': remainingCents,
-      });
+    if (i == n - 1) {
+      interestCents = ((remainingCents / 100.0) * r * 100).round();
+      principalCentsForPeriod = remainingCents;
     }
 
-    final expectedTotalPaid = principalCents + totalInterestAccumCents;
-    final delta = expectedTotalPaid - sumPaymentsCents;
-    if (delta != 0 && schedule.isNotEmpty) {
-      final last = schedule.last;
-      last['principalCents'] = (last['principalCents'] as int) + delta;
-      last['paymentCents'] = (last['paymentCents'] as int) + delta;
-      last['remainingCents'] = 0;
-    }
+    final paymentCents = principalCentsForPeriod + interestCents;
+    remainingCents = max(0, remainingCents - principalCentsForPeriod);
+    totalInterestAccumCents += interestCents;
+    sumPaymentsCents += paymentCents;
 
-    return schedule;
+    schedule.add({
+      'index': i + 1,
+      'date': current,
+      'paymentCents': paymentCents,
+      'interestCents': interestCents,
+      'principalCents': principalCentsForPeriod,
+      'remainingCents': remainingCents,
+    });
   }
 
-  int _periodsPerYearForFrequency(String freq) {
-    switch (freq.toLowerCase()) {
-      case 'diario':
-        return 365;
-      case 'semanal':
-        return 52;
-      case 'quincenal':
-        return 24;
-      default:
-        return 12;
-    }
+  final expectedTotalPaid = principalCents + totalInterestAccumCents;
+  final delta = expectedTotalPaid - sumPaymentsCents;
+  if (delta != 0 && schedule.isNotEmpty) {
+    final last = schedule.last;
+    last['principalCents'] = (last['principalCents'] as int) + delta;
+    last['paymentCents'] = (last['paymentCents'] as int) + delta;
+    last['remainingCents'] = 0;
   }
 
+  return schedule;
+}
+
+int _periodsPerYearForFrequency(String freq) {
+  switch (freq.toLowerCase()) {
+    case 'diario':
+      return 365;
+    case 'semanal':
+      return 52;
+    case 'quincenal':
+      return 24;
+    default:
+      return 12;
+  }
+}
   @override
   Widget build(BuildContext context) {
     // ✅ Formatear el ID del préstamo para mostrar en el título
