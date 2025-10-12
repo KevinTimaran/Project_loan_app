@@ -1,5 +1,7 @@
 // lib/main.dart (SUGERENCIA - no cambia nombres públicos)
 import 'package:flutter/material.dart';
+// ✅ ADD: Import for localizations
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 import 'package:path_provider/path_provider.dart';
@@ -69,6 +71,17 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
+      // ✅ ADD: Localization configuration
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('es', 'ES'), // Spanish first
+        Locale('en', 'US'), // English as fallback
+      ],
+      locale: const Locale('es', 'ES'),
       initialRoute: '/',
       routes: {
         '/': (context) => const PinValidationScreen(),

@@ -552,15 +552,23 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: 16),
-              ListTile(
-                title: Text('Fecha de Inicio: ${DateFormat('dd/MM/yyyy').format(_startDate)}'),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () => _selectDate(context, true),
+              Builder(
+                builder: (BuildContext builderContext) {
+                  return ListTile(
+                    title: Text('Fecha de Inicio: ${DateFormat('dd/MM/yyyy').format(_startDate)}'),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () => _selectDate(builderContext, true),
+                  );
+                },
               ),
-              ListTile(
-                title: Text('Fecha de Vencimiento: ${DateFormat('dd/MM/yyyy').format(_dueDate)}'),
-                trailing: const Icon(Icons.calendar_today),
-                onTap: () => _selectDate(context, false),
+              Builder(
+                builder: (BuildContext builderContext) {
+                  return ListTile(
+                    title: Text('Fecha de Vencimiento: ${DateFormat('dd/MM/yyyy').format(_dueDate)}'),
+                    trailing: const Icon(Icons.calendar_today),
+                    onTap: () => _selectDate(builderContext, false),
+                  );
+                },
               ),
               const SizedBox(height: 20),
               SizedBox(

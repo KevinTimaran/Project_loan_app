@@ -4,7 +4,6 @@
 //#  recalcular pagos y actualizar la base de datos.#//
 //#  Solo si el préstamo está activo.              #//
 //#################################################
-
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -577,17 +576,20 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                           const SizedBox(height: 16),
                           
                           // Campo de fecha de inicio
-                          TextFormField(
-                            controller: _startDateController,
-                            readOnly: true,
-                            decoration: const InputDecoration(
-                              labelText: 'Fecha de Inicio',
-                              border: OutlineInputBorder(),
-                              suffixIcon: Icon(Icons.calendar_today),
-                            ),
-                            onTap: () => _selectStartDate(context),
+                          Builder(
+                            builder: (BuildContext builderContext) {
+                              return TextFormField(
+                                controller: _startDateController,
+                                readOnly: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Fecha de Inicio',
+                                  border: OutlineInputBorder(),
+                                  suffixIcon: Icon(Icons.calendar_today),
+                                ),
+                                onTap: () => _selectStartDate(builderContext),
+                              );
+                            },
                           ),
-                          const SizedBox(height: 16),
                           
                           TextFormField(
                             controller: _amountController,

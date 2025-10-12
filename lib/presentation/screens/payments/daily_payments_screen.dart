@@ -1,8 +1,8 @@
 //#################################################
-//#  Pantalla de Cobros del Día                    #//
-//#  Muestra pagos realizados en la fecha          #//
-//#  seleccionada (por defecto hoy).               #//
-//#  Incluye resumen y lista detallada.           #//
+//#  Pantalla de Cobros del Día                    #
+//#  Muestra pagos realizados en la fecha          #
+//#  seleccionada (por defecto hoy).               #
+//#  Incluye resumen y lista detallada.           #
 //#################################################
 
 import 'package:flutter/material.dart';
@@ -71,6 +71,7 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
     });
   }
 
+  // ✅ CORREGIDO: Usando Builder para obtener el context correcto
   Future<void> _selectDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -104,18 +105,23 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Fecha:', style: TextStyle(fontSize: 16)),
-                    GestureDetector(
-                      onTap: () => _selectDate(context),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.calendar_today, color: Colors.blue),
-                          const SizedBox(width: 8),
-                          Text(
-                            DateFormat('dd/MM/yyyy').format(_selectedDate),
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    // ✅ CORREGIDO: Usando Builder para el GestureDetector
+                    Builder(
+                      builder: (BuildContext builderContext) {
+                        return GestureDetector(
+                          onTap: () => _selectDate(builderContext),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.calendar_today, color: Colors.blue),
+                              const SizedBox(width: 8),
+                              Text(
+                                DateFormat('dd/MM/yyyy').format(_selectedDate),
+                                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
+                        );
+                      },
                     ),
                   ],
                 ),
