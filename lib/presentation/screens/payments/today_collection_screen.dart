@@ -1,6 +1,7 @@
 //#################################################
 //#  Pantalla de Cobros de Hoy - VERSIÓN DEFINITIVA #
 //#  Lógica de fechas completamente revisada       #
+//#  + Botones de llamada y WhatsApp               #
 //#################################################
 
 import 'package:flutter/material.dart';
@@ -9,6 +10,8 @@ import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
+// ✅ NUEVO: Importar url_launcher para llamadas y WhatsApp
+import 'package:url_launcher/url_launcher.dart';
 
 class TodayCollectionScreen extends StatefulWidget {
   const TodayCollectionScreen({super.key});
@@ -298,6 +301,41 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
     }
   }
 
+  // ✅ NUEVO: Método para llamar al cliente
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(
+      scheme: 'tel',
+      path: phoneNumber,
+    );
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      debugPrint('No se pudo llamar al número $phoneNumber');
+      if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('No se puede realizar la llamada a $phoneNumber')),
+         );
+      }
+    }
+  }
+
+  // ✅ NUEVO: Método para enviar mensaje por WhatsApp
+  Future<void> _sendWhatsAppMessage(String phoneNumber, String message) async {
+    final Uri launchUri = Uri.parse(
+      'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}',
+    );
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      debugPrint('No se pudo abrir WhatsApp con $phoneNumber');
+      if (mounted) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text('WhatsApp no está disponible o el número es incorrecto.')),
+         );
+      }
+    }
+  }
+
   Widget _buildHeader(BuildContext context) {
     final dateLabel = _dateFormatter.format(_selectedDate);
     final totalAmount = _dailyLoans.fold<double>(0.0, (s, l) => s + (l.calculatedPaymentAmount ?? 0.0));
@@ -389,12 +427,51 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
             Text('Saldo residual: ${_currency_formatter.format(remaining)}', style: TextStyle(fontSize: 12, color: Colors.orange[800], fontWeight: FontWeight.w500)),
           Text('Saldo total: ${_currency_formatter.format(remaining)}', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500)),
         ]),
-        trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-          Text(_currency_formatter.format(calcPayment), style: TextStyle(fontWeight: FontWeight.bold, color: statusColor, fontSize: 16)),
-          Text('Hoy', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-          const SizedBox(height: 6),
-          const Icon(Icons.drag_handle, size: 18, color: Colors.grey),
-        ]),
+        // ✅ CORREGIDO: Reemplazado trailing anterior por un Row para evitar overflow
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Contenedor para el monto y la etiqueta "Hoy"
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _currency_formatter.format(calcPayment),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: statusColor,
+                    fontSize: 16,
+                  ),
+                ),
+                Text(
+                  'Hoy',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                ),
+              ],
+            ),
+            // Espaciado entre texto y botones
+            const SizedBox(width: 8),
+            // Contenedor para los botones de acción
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.phone, color: Colors.green),
+                  onPressed: () => _makePhoneCall('3206451037'), // Reemplaza con el número real del cliente
+                ),
+                IconButton(
+                  icon: const Icon(Icons.chat, color: Colors.green),
+                  onPressed: () => _sendWhatsAppMessage('3206451037', 'Hola, ¿cómo va el pago del préstamo #${_getShortLoanId(loan)}?'), // Reemplaza con número real
+                ),
+              ],
+            ),
+          ],
+        ),
         onTap: () async {
           final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)));
           if (result == true && mounted) {

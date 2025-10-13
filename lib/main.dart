@@ -19,6 +19,9 @@ import 'package:loan_app/presentation/screens/home_screen.dart';
 import 'package:loan_app/presentation/screens/auth/pin_validation_screen.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
 
+// ✅ NUEVO: Importar servicios
+import 'package:loan_app/services/notifications_service.dart'; // <-- Asegúrate de que esta línea esté
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -52,6 +55,9 @@ Future<void> main() async {
     // Si abrir cajas falla, lo registramos y seguimos: la app puede crear cajas al vuelo.
     debugPrint('WARN: No se pudieron abrir las cajas Hive al inicio: $e\n$st');
   }
+
+  // ✅ NUEVO: Inicializar el servicio de notificaciones (ahora maneja plataformas incompatibles)
+  await NotificationsService().init(); // <-- Esta línea ya no debería causar el crash en Linux
 
   runApp(
     ChangeNotifierProvider(
