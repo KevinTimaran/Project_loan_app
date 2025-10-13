@@ -587,34 +587,30 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                       ),
                       const SizedBox(height: 16),
                     ],
-                    // ✅ CON ESTO:
-                  Builder(
-                    builder: (BuildContext builderContext) {
-                      return TextFormField(
-                        controller: _dateController,
-                        readOnly: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Fecha del Pago',
-                          border: OutlineInputBorder(),
-                          suffixIcon: Icon(Icons.calendar_today),
-                        ),
-                        onTap: () async {
-                          final selectedDate = await showDatePicker(
-                            context: builderContext,
-                            initialDate: _selectedDate,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2101),
-                          );
-                          if (selectedDate != null) {
-                            setState(() {
-                              _selectedDate = selectedDate;
-                              _dateController.text = DateFormat('dd/MM/yyyy').format(_selectedDate);
-                            });
-                          }
-                        },
-                      );
-                    },
-                  ),
+                    TextFormField(
+                      controller: _dateController,
+                      readOnly: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Fecha del Pago',
+                        border: OutlineInputBorder(),
+                        suffixIcon: Icon(Icons.calendar_today),
+                      ),
+                      onTap: () async {
+                        final selectedDate = await showDatePicker(
+                          context: context,
+                          initialDate: _selectedDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2101),
+                        );
+                        if (selectedDate != null) {
+                          setState(() {
+                            _selectedDate = selectedDate;
+                            _dateController.text =
+                                DateFormat('dd/MM/yyyy').format(_selectedDate);
+                          });
+                        }
+                      },
+                    ),
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _amountController,

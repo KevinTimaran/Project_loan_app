@@ -543,71 +543,78 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  Card(
-                    elevation: 6,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(14.0),
-                      child: Column(
-                        children: [
-                          Row(
+                  // ✅ NUEVO: SingleChildScrollView para el resumen fijo
+                  Expanded(
+                    flex: 0, // No expande, ocupa solo su altura natural
+                    child: SingleChildScrollView(
+                      physics: const NeverScrollableScrollPhysics(), // Evita scroll interno duplicado
+                      child: Card(
+                        elevation: 6,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(14.0),
+                          child: Column(
                             children: [
-                              Expanded(child: Text('Resumen del Crédito', style: Theme.of(context).textTheme.titleLarge ?? const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _summaryRowSmall('Fecha de crédito', DateFormat('dd/MM/yyyy').format(_startDate)),
-                                    const SizedBox(height: 8),
-                                    _summaryRowSmall('Fecha próxima cuota', nextPaymentDate != null ? DateFormat('dd/MM/yyyy').format(nextPaymentDate) : '-'),
-                                    const SizedBox(height: 8),
-                                    _summaryRowSmall('Vencimiento del crédito', DateFormat('dd/MM/yyyy').format(_dueDate)),
-                                  ],
-                                ),
+                              Row(
+                                children: [
+                                  Expanded(child: Text('Resumen del Crédito', style: Theme.of(context).textTheme.titleLarge ?? const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                                ],
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    _summaryRowSmall('Interés (anual)', _interestRateController.text.isNotEmpty ? '${_interestRateController.text.trim()} %' : '-'),
-                                    const SizedBox(height: 8),
-                                    _summaryRowSmall('Valor total interés', currency.format(totalInterestCents / 100.0)),
-                                    const SizedBox(height: 8),
-                                    _summaryRowSmall('Valor cuota', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['paymentCents'] as int) / 100.0 : 0.0))),
-                                  ],
-                                ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        _summaryRowSmall('Fecha de crédito', DateFormat('dd/MM/yyyy').format(_startDate)),
+                                        const SizedBox(height: 8),
+                                        _summaryRowSmall('Fecha próxima cuota', nextPaymentDate != null ? DateFormat('dd/MM/yyyy').format(nextPaymentDate) : '-'),
+                                        const SizedBox(height: 8),
+                                        _summaryRowSmall('Vencimiento del crédito', DateFormat('dd/MM/yyyy').format(_dueDate)),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        _summaryRowSmall('Interés (anual)', _interestRateController.text.isNotEmpty ? '${_interestRateController.text.trim()} %' : '-'),
+                                        const SizedBox(height: 8),
+                                        _summaryRowSmall('Valor total interés', currency.format(totalInterestCents / 100.0)),
+                                        const SizedBox(height: 8),
+                                        _summaryRowSmall('Valor cuota', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['paymentCents'] as int) / 100.0 : 0.0))),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+                              const Divider(),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Expanded(child: _summaryRowBold('Total prestado', currency.format(principalCents / 100.0))),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: _summaryRowBold('Total + interés', currency.format((principalCents + totalInterestCents) / 100.0))),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: _summaryRowBold('Saldo total', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0))),
+                              ),
+                              const SizedBox(height: 8),
+                              // Interés primer periodo mostrado claramente
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: _summaryRowSmall('Interés primer periodo', currency.format(firstInterest)),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 12),
-                          const Divider(),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(child: _summaryRowBold('Total prestado', currency.format(principalCents / 100.0))),
-                              const SizedBox(width: 12),
-                              Expanded(child: _summaryRowBold('Total + interés', currency.format((principalCents + totalInterestCents) / 100.0))),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: _summaryRowBold('Saldo total', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0))),
-                          ),
-                          const SizedBox(height: 8),
-                          // Interés primer periodo mostrado claramente
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: _summaryRowSmall('Interés primer periodo', currency.format(firstInterest)),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ),

@@ -1,17 +1,15 @@
+// lib/presentation/screens/payments/today_collection_screen.dart
 //#################################################
-//#  Pantalla de Cobros de Hoy - VERSIÓN DEFINITIVA #
-//#  Lógica de fechas completamente revisada       #
-//#  + Botones de llamada y WhatsApp               #
+//#  Pantalla de Cobros de Hoy (con reordenamiento)
 //#################################################
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
-// ✅ NUEVO: Importar url_launcher para llamadas y WhatsApp
-import 'package:url_launcher/url_launcher.dart';
 
 class TodayCollectionScreen extends StatefulWidget {
   const TodayCollectionScreen({super.key});
@@ -26,176 +24,131 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   List<LoanModel> _dailyLoans = [];
   final Map<String, String> _clientNamesMap = {};
+  final Map<String, double> _amountsDueToday = {};
   bool _isLoading = true;
   String? _loadErrorMessage;
 
   late DateTime _selectedDate;
 
-  final NumberFormat _currency_formatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+  final NumberFormat _currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
   final DateFormat _dateFormatter = DateFormat('dd/MM/yyyy');
 
-  static const double _residualThreshold = 0.50; // si queda <= esto, considerarlo residual y no mostrar
-  static const int _shortIdLength = 5;
+  // Persistence key prefix para guardar orden por fecha
+  static const String _prefsOrderKeyPrefix = 'today_collection_order_';
+
+  // ✅ MEJORADO: Generar ID corta y legible
+  String _getShortLoanId(LoanModel loan) {
+    final id = loan.id ?? '';
+    if (id.isEmpty) return '00000';
+
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '00000';
+    if (digits.length <= 4) return digits.padLeft(4, '0');
+    return digits.substring(digits.length - 4);
+  }
+
+  // ✅ NUEVO: Constantes para manejo de residuales (igual que en payment_form_screen)
+  static const double _residualThreshold = 0.50; // Hasta 50 centavos se considera residual pequeño
+  static const double _roundingTolerance = 0.01; // 1 centavo de tolerancia para validación
 
   @override
   void initState() {
     super.initState();
-    _selectedDate = DateTime.now();
+    _selectedDate = _normalizeDate(DateTime.now());
     _loadDailyLoans();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _setupRouteObserver();
+    });
+  }
+
+  // Observador de rutas mínimo (puede ampliarse)
+  void _setupRouteObserver() {
+    final route = ModalRoute.of(context);
+    if (route != null) {
+      route.addScopedWillPopCallback(() async {
+        return true;
+      });
+    }
   }
 
   DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  Future<void> _loadClientNames(Set<String> clientIds) async {
-    if (clientIds.isEmpty) return;
-    for (final clientId in clientIds) {
+  DateTime? _toDateSafe(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return DateTime(v.year, v.month, v.day);
+    if (v is int) {
       try {
-        final client = await _clientRepository.getClientById(clientId);
-        if (client != null) {
-          _clientNamesMap[clientId] = '${client.name} ${client.lastName}'.trim();
-        } else {
-          _clientNamesMap[clientId] = 'Cliente no encontrado';
-        }
-      } catch (e) {
-        _clientNamesMap[clientId] = 'Error al cargar';
+        final dt = DateTime.fromMillisecondsSinceEpoch(v);
+        return DateTime(dt.year, dt.month, dt.day);
+      } catch (_) {
+        return null;
       }
     }
-  }
-
-  String _getShortLoanId(LoanModel loan) {
-    final id = loan.id;
-    if (id.isEmpty) return '00000';
-    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return id.length <= _shortIdLength ? id : id.substring(0, _shortIdLength);
-    if (digits.length <= _shortIdLength) {
-      return digits.padLeft(_shortIdLength, '0');
-    } else {
-      return digits.substring(digits.length - _shortIdLength);
-    }
-  }
-
-  bool _shouldExcludeLoan(LoanModel loan) {
-    final status = loan.status.toLowerCase().trim();
-    if (status == 'pagado' || status == 'cancelado' || status == 'finalizado') {
-      return true;
-    }
-
-    final remainingBalance = loan.remainingBalance ?? 0.0;
-    // si queda menos o igual que el threshold (ej: centavos residuales), no mostrar
-    if (remainingBalance <= _residualThreshold) {
-      return true;
-    }
-
-    return false;
-  }
-
-  bool _hasPaymentForDate(LoanModel loan, DateTime date) {
-    if (loan.payments.isEmpty) return false;
-    final target = _normalizeDate(date);
-    for (final p in loan.payments) {
-      if (_normalizeDate(p.date) == target) return true;
-    }
-    return false;
-  }
-
-  // Si paymentDates explícitas contienen la fecha, la devuelve; si no, intenta calcularla
-  DateTime? _getSpecificInstallmentDate(LoanModel loan, DateTime targetDate) {
-    final normalizedTarget = _normalizeDate(targetDate);
-
-    // 1) buscar en paymentDates guardadas (si existen)
-    for (final pd in loan.paymentDates) {
-      if (_normalizeDate(pd) == normalizedTarget) return pd;
-    }
-
-    // 2) calcular (iterando por las cuotas)
-    return _calculateInstallmentDate(loan, normalizedTarget);
-  }
-
-  DateTime? _calculateInstallmentDate(LoanModel loan, DateTime targetDate) {
-    final start = _normalizeDate(loan.startDate);
-    final freq = loan.paymentFrequency.toLowerCase();
-    final term = loan.termValue;
-
-    for (int i = 0; i < term; i++) {
-      DateTime candidate;
-      switch (freq) {
-        case 'diario':
-          candidate = start.add(Duration(days: i));
-          break;
-        case 'semanal':
-          candidate = start.add(Duration(days: i * 7));
-          break;
-        case 'quincenal':
-          candidate = start.add(Duration(days: i * 15));
-          break;
-        case 'mensual':
-          final int monthsToAdd = i;
-          int year = start.year + ((start.month - 1 + monthsToAdd) ~/ 12);
-          int month = ((start.month - 1 + monthsToAdd) % 12) + 1;
-          int day = start.day;
-          final lastDay = DateTime(year, month + 1, 0).day;
-          if (day > lastDay) day = lastDay;
-          candidate = DateTime(year, month, day);
-          break;
-        default:
-          candidate = start.add(Duration(days: i * 30));
+    if (v is String) {
+      try {
+        final dt = DateTime.parse(v);
+        return DateTime(dt.year, dt.month, dt.day);
+      } catch (_) {
+        try {
+          final parts = v.split(RegExp(r'[/\-]'));
+          if (parts.length >= 3) {
+            final d = int.parse(parts[0]);
+            final m = int.parse(parts[1]);
+            final y = int.parse(parts[2]);
+            return DateTime(y, m, d);
+          }
+        } catch (_) {}
       }
-      if (_normalizeDate(candidate) == targetDate) return candidate;
     }
-
     return null;
   }
 
-  bool _shouldShowLoanToday(LoanModel loan, DateTime targetDate) {
-    if (_shouldExcludeLoan(loan)) return false;
+  List<DateTime> _generatePaymentDatesFallback(LoanModel loan) {
+    final start = loan.startDate;
+    final int n = loan.termValue;
+    final freq = loan.paymentFrequency.toLowerCase();
+    if (n <= 0) return [];
 
-    final installmentDate = _getSpecificInstallmentDate(loan, targetDate);
-    if (installmentDate == null) return false;
-
-    // si ya existe un pago para esa fecha (exacta), no mostrar
-    if (_hasPaymentForDate(loan, installmentDate)) return false;
-
-    final remaining = loan.remainingBalance ?? 0.0;
-    if (remaining <= 0.0) return false;
-
-    return true;
-  }
-
-  void _debugLoanStatus(LoanModel loan, DateTime targetDate) {
-    debugPrint('🔍 ANALIZANDO PRÉSTAMO: ${loan.clientName} (${loan.id})');
-    debugPrint('   Fecha objetivo: ${_dateFormatter.format(targetDate)}');
-    debugPrint('   Inicio: ${_dateFormatter.format(loan.startDate)}, Frec: ${loan.paymentFrequency}, Cuotas: ${loan.termValue}');
-    debugPrint('   Remaining: ${loan.remainingBalance}  CalcCuota: ${loan.calculatedPaymentAmount}');
-    final installmentDate = _getSpecificInstallmentDate(loan, targetDate);
-    debugPrint('   Fecha cuota encontrada: ${installmentDate != null ? _dateFormatter.format(installmentDate) : "NINGUNA"}');
-    debugPrint('   Pagos en la fecha: ${_hasPaymentForDate(loan, targetDate)}');
-    debugPrint('   Excluir?: ${_shouldExcludeLoan(loan)}');
-    debugPrint('   Mostrar hoy?: ${_shouldShowLoanToday(loan, targetDate)}');
-    if (loan.paymentDates.isNotEmpty) {
-      debugPrint('   paymentDates registrados:');
-      for (final d in loan.paymentDates) debugPrint('     - ${_dateFormatter.format(d)}');
+    List<DateTime> dates = [];
+    DateTime cur = DateTime(start.year, start.month, start.day);
+    for (int i = 0; i < n; i++) {
+      if (i > 0) {
+        if (freq == 'diario') cur = cur.add(const Duration(days: 1));
+        else if (freq == 'semanal') cur = cur.add(const Duration(days: 7));
+        else if (freq == 'quincenal') cur = cur.add(const Duration(days: 15));
+        else {
+          int year = cur.year;
+          int month = cur.month + 1;
+          year += (month - 1) ~/ 12;
+          month = ((month - 1) % 12) + 1;
+          int day = cur.day;
+          int lastDayOfMonth = DateTime(year, month + 1, 0).day;
+          if (day > lastDayOfMonth) day = lastDayOfMonth;
+          cur = DateTime(year, month, day);
+        }
+      }
+      dates.add(DateTime(cur.year, cur.month, cur.day));
     }
-    if (loan.payments.isNotEmpty) {
-      debugPrint('   pagos realizados:');
-      for (final p in loan.payments) debugPrint('     - ${_dateFormatter.format(p.date)} -> ${p.amount}');
-    }
-    debugPrint('---');
+    return dates;
   }
 
   Future<void> _loadDailyLoans() async {
-    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _dailyLoans = [];
       _clientNamesMap.clear();
+      _amountsDueToday.clear();
       _loadErrorMessage = null;
     });
 
     try {
-      final allLoans = await _loan_repository_getAll();
-      if (!mounted) return;
+      debugPrint('🔄 Cargando préstamos desde la base de datos...');
+      final allLoans = await _loanRepository.getAllLoans();
+      debugPrint('📊 Total de préstamos encontrados: ${allLoans?.length ?? 0}');
 
       if (allLoans == null || allLoans.isEmpty) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
           _dailyLoans = [];
@@ -203,313 +156,404 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         return;
       }
 
-      final target = _normalizeDate(_selectedDate);
-      final List<LoanModel> daily = [];
-      final Set<String> clientIds = {};
-
-      debugPrint('🔄 Analizando ${allLoans.length} préstamos para ${_dateFormatter.format(target)}');
+      final day = _normalizeDate(_selectedDate);
+      final List<LoanModel> dailyLoans = [];
 
       for (final loan in allLoans) {
-        if (loan == null) continue;
-        _debugLoanStatus(loan, target);
-        if (_shouldShowLoanToday(loan, target)) {
-          daily.add(loan);
-          clientIds.add(loan.clientId);
-          debugPrint('✅ Incluido: ${loan.clientName}');
-        } else {
-          debugPrint('❌ Excluido: ${loan.clientName}');
-        }
-      }
+        try {
+          if (loan == null) continue;
+          final status = loan.status.toLowerCase();
+          if (status == 'pagado' || status == 'cancelado') continue;
 
-      await _loadClientNames(clientIds);
-
-      if (!mounted) return;
-      setState(() {
-        _dailyLoans = daily;
-        _isLoading = false;
-      });
-
-      debugPrint('🎯 Resultado: ${daily.length} préstamos para cobrar');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isLoading = false;
-        _loadErrorMessage = 'Error al cargar los cobros: $e';
-      });
-      debugPrint('❌ ERROR cargando préstamos: $e');
-    }
-  }
-
-  // wrapper seguro para obtener todos los loans (nombre no cambiado)
-  Future<List<LoanModel>?> _loan_repository_getAll() async {
-    try {
-      return await _loanRepository.getAllLoans();
-    } catch (e) {
-      debugPrint('Error repo getAllLoans: $e');
-      return null;
-    }
-  }
-
-  // wrapper seguro para obtener por id (nombre no cambiado)
-  Future<LoanModel?> _loan_repository_getById(String? id) async {
-    if (id == null) return null;
-    try {
-      return await _loanRepository.getLoanById(id);
-    } catch (e) {
-      debugPrint('Error repo getLoanById: $e');
-      return null;
-    }
-  }
-
-  Future<void> _handlePaymentSuccess(LoanModel paidLoan) async {
-    debugPrint('💾 Pago registrado, actualizando lista para: ${paidLoan.clientName}');
-    try {
-      final updated = await _loan_repository_getById(paidLoan.id);
-      if (updated != null && mounted) {
-        final shouldShow = _shouldShowLoanToday(updated, _selectedDate);
-        if (!shouldShow) {
-          setState(() => _dailyLoans.removeWhere((l) => l.id == paidLoan.id));
-          debugPrint('🗑️ Removido después de pago: ${paidLoan.clientName}');
-        } else {
-          final idx = _dailyLoans.indexWhere((l) => l.id == paidLoan.id);
-          if (idx >= 0) {
-            setState(() => _dailyLoans[idx] = updated);
-            debugPrint('🔄 Actualizado en lista: ${paidLoan.clientName}');
+          final rawDates = loan.paymentDates;
+          List<DateTime> paymentDates = [];
+          if (rawDates.isNotEmpty) {
+            for (final raw in rawDates) {
+              final dt = _toDateSafe(raw);
+              if (dt != null) paymentDates.add(dt);
+            }
           }
+
+          if (paymentDates.isEmpty) {
+            paymentDates = _generatePaymentDatesFallback(loan);
+          }
+
+          bool hasToday = paymentDates.any((pd) => pd.year == day.year && pd.month == day.month && pd.day == day.day);
+
+          if (!hasToday && loan.dueDate != null) {
+            final due = DateTime(loan.dueDate.year, loan.dueDate.month, loan.dueDate.day);
+            if (due.year == day.year && due.month == day.month && due.day == day.day) {
+              hasToday = true;
+            }
+          }
+
+          if (hasToday) {
+            final cuota = loan.calculatedPaymentAmount ?? 0.0;
+            final saldo = loan.remainingBalance ?? 0.0;
+            double amount = cuota;
+
+            bool shouldShowLoan = true;
+            if (loan.isFullyPaid || loan.status.toLowerCase() == 'pagado' || saldo <= 0.01) {
+              shouldShowLoan = false;
+            }
+            if (shouldShowLoan && amount <= _roundingTolerance) {
+              shouldShowLoan = false;
+            }
+
+            if (shouldShowLoan) {
+              _amountsDueToday[loan.id ?? loan.clientId ?? UniqueKey().toString()] = amount;
+              dailyLoans.add(loan);
+            }
+          }
+        } catch (e) {
+          continue;
         }
       }
+
+      // cargar nombres de clientes (únicos)
+      final uniqueClientIds = <String>{};
+      for (final loan in dailyLoans) {
+        final cid = loan.clientId ?? '';
+        if (cid.isNotEmpty) uniqueClientIds.add(cid);
+      }
+
+      if (uniqueClientIds.isNotEmpty) {
+        final futures = uniqueClientIds.map((cid) async {
+          try {
+            final client = await _clientRepository.getClientById(cid);
+            final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
+            return MapEntry(cid, name.isNotEmpty ? name : 'Cliente desconocido');
+          } catch (e) {
+            return MapEntry(cid, 'Cliente desconocido');
+          }
+        }).toList();
+
+        final entries = await Future.wait(futures);
+        for (final e in entries) {
+          _clientNamesMap[e.key] = e.value;
+        }
+      }
+
+      // Aplicar orden guardado (si existe)
+      final ordered = await _applySavedOrder(dailyLoans);
+
+      if (!mounted) return;
+      setState(() {
+        _dailyLoans = ordered;
+        _isLoading = false;
+      });
+
+      debugPrint('📋 RESUMEN FINAL:');
+      debugPrint('📋 Préstamos procesados: ${ordered.length}');
+      debugPrint('📋 Total a cobrar: ${ordered.fold<double>(0.0, (sum, loan) => sum + (_amountsDueToday[loan.id ?? loan.clientId ?? ''] ?? 0.0))}');
     } catch (e) {
-      debugPrint('⚠️ Error en handlePaymentSuccess: $e');
-      if (mounted) await _loadDailyLoans();
+      if (!mounted) return;
+      final msg = 'Error al cargar cobros: $e';
+      setState(() {
+        _isLoading = false;
+        _loadErrorMessage = msg;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  Future<List<LoanModel>> _applySavedOrder(List<LoanModel> loans) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _prefsOrderKeyPrefix + _dateFormatter.format(_selectedDate);
+      final saved = prefs.getStringList(key);
+      if (saved == null || saved.isEmpty) return loans;
+
+      // Crear mapa id -> loan
+      final map = {for (var l in loans) (l.id ?? l.clientId ?? l.hashCode.toString()): l};
+
+      final List<LoanModel> ordered = [];
+      for (final id in saved) {
+        if (map.containsKey(id)) {
+          ordered.add(map[id]!);
+          map.remove(id);
+        }
+      }
+      // Añadir los que no están en saved al final, en su orden original
+      ordered.addAll(map.values);
+      return ordered;
+    } catch (e) {
+      debugPrint('Error aplicando orden guardado: $e');
+      return loans;
+    }
+  }
+
+  Future<void> _saveCurrentOrder() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _prefsOrderKeyPrefix + _dateFormatter.format(_selectedDate);
+      final ids = _dailyLoans.map((l) => l.id ?? l.clientId ?? l.hashCode.toString()).toList();
+      await prefs.setStringList(key, ids);
+      debugPrint('Orden guardado para $key -> $ids');
+    } catch (e) {
+      debugPrint('Error guardando orden: $e');
     }
   }
 
   Future<void> _selectDate(BuildContext context) async {
-    final picked = await showDatePicker(
+    final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
       firstDate: DateTime(2000),
-      lastDate: DateTime(2030),
-      locale: const Locale('es', 'ES'),
+      lastDate: DateTime(2100),
     );
     if (picked != null) {
       final normalized = _normalizeDate(picked);
-      if (normalized != _normalizeDate(_selectedDate)) {
-        setState(() => _selectedDate = picked);
+      if (normalized != _selectedDate) {
+        setState(() => _selectedDate = normalized);
         await _loadDailyLoans();
-      }
-    }
-  }
-
-  // ✅ NUEVO: Método para llamar al cliente
-  Future<void> _makePhoneCall(String phoneNumber) async {
-    final Uri launchUri = Uri(
-      scheme: 'tel',
-      path: phoneNumber,
-    );
-    if (await canLaunchUrl(launchUri)) {
-      await launchUrl(launchUri);
-    } else {
-      debugPrint('No se pudo llamar al número $phoneNumber');
-      if (mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text('No se puede realizar la llamada a $phoneNumber')),
-         );
-      }
-    }
-  }
-
-  // ✅ NUEVO: Método para enviar mensaje por WhatsApp
-  Future<void> _sendWhatsAppMessage(String phoneNumber, String message) async {
-    final Uri launchUri = Uri.parse(
-      'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}',
-    );
-    if (await canLaunchUrl(launchUri)) {
-      await launchUrl(launchUri);
-    } else {
-      debugPrint('No se pudo abrir WhatsApp con $phoneNumber');
-      if (mounted) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text('WhatsApp no está disponible o el número es incorrecto.')),
-         );
       }
     }
   }
 
   Widget _buildHeader(BuildContext context) {
     final dateLabel = _dateFormatter.format(_selectedDate);
-    final totalAmount = _dailyLoans.fold<double>(0.0, (s, l) => s + (l.calculatedPaymentAmount ?? 0.0));
+    final totalAmount = _dailyLoans.fold<double>(0.0, (sum, loan) {
+      final key = loan.id?.toString() ?? loan.clientId?.toString() ?? '';
+      return sum + (_amountsDueToday[key] ?? 0.0);
+    });
+
+    final residualLoans = _dailyLoans.where((loan) => (loan.remainingBalance ?? 0) <= _residualThreshold).length;
+    final almostPaidLoans = _dailyLoans.where((loan) {
+      final saldo = loan.remainingBalance ?? 0;
+      return saldo > _residualThreshold && saldo <= 1.0;
+    }).length;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-      child: Column(children: [
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Fecha de cobro:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-          InkWell(
-            onTap: () => _selectDate(context),
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(color: Theme.of(context).primaryColor, borderRadius: BorderRadius.circular(8)),
-              child: Row(children: [
-                const Icon(Icons.calendar_today, size: 18, color: Colors.white),
-                const SizedBox(width: 8),
-                Text(dateLabel, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-              ]),
-            ),
-          )
-        ]),
-        const SizedBox(height: 16),
-        Card(
-          elevation: 3,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-              _buildSummaryItem('Préstamos', _dailyLoans.length.toString(), Icons.account_balance_wallet, Colors.blue),
-              _buildSummaryItem('Total', _currency_formatter.format(totalAmount), Icons.attach_money, Colors.green),
-            ]),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Fecha:', style: TextStyle(fontSize: 16)),
+              InkWell(
+                onTap: () => _selectDate(context),
+                borderRadius: BorderRadius.circular(6),
+                child: Row(
+                  children: [
+                    const Icon(Icons.calendar_today, color: Colors.white),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).primaryColor,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(dateLabel, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        )
-      ]),
+          const SizedBox(height: 12),
+          Card(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.all(14.0),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildSummaryItem('Préstamos Vencidos', _dailyLoans.length.toString(), Icons.account_balance_wallet),
+                      _buildSummaryItem('Total a Cobrar', _currencyFormatter.format(totalAmount), Icons.attach_money),
+                    ],
+                  ),
+                  if (residualLoans > 0 || almostPaidLoans > 0) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      children: [
+                        if (residualLoans > 0)
+                          _buildSummaryItem('Residuales', residualLoans.toString(), Icons.info, Colors.orange),
+                        if (almostPaidLoans > 0)
+                          _buildSummaryItem('Casi Pagados', almostPaidLoans.toString(), Icons.trending_down, Colors.blue),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildLoanTile(LoanModel loan) {
-    final clientName = _clientNamesMap[loan.clientId] ?? 'Cliente no disponible';
+    final clientKey = loan.clientId?.toString() ?? '';
+    final clientName = _clientNamesMap[clientKey] ?? 'Cliente desconocido';
     final loanIdDisplay = _getShortLoanId(loan);
-    final remaining = loan.remainingBalance ?? 0.0;
-    final calcPayment = loan.calculatedPaymentAmount ?? 0.0;
+    final dueDateText = loan.dueDate != null ? _dateFormatter.format(loan.dueDate!) : 'Fecha desconocida';
+    final key = loan.id?.toString() ?? loan.clientId?.toString() ?? '';
+    final amountDueToday = _amountsDueToday[key] ?? 0.0;
+    final saldo = loan.remainingBalance ?? 0.0;
 
-    Color statusColor = Colors.grey;
+    Color? cardColor;
     IconData statusIcon = Icons.account_balance_wallet;
-    String statusText = 'PENDIENTE';
+    String statusText = '';
 
-    if (remaining <= _residualThreshold) {
-      statusColor = Colors.orange;
+    if (loan.isFullyPaid) {
+      cardColor = Colors.green[50];
+      statusIcon = Icons.check_circle;
+      statusText = 'PAGADO';
+    } else if (saldo <= _residualThreshold) {
+      cardColor = Colors.orange[50];
       statusIcon = Icons.info;
       statusText = 'RESIDUAL';
-    } else if (remaining <= calcPayment) {
-      statusColor = Colors.blue;
+    } else if (saldo <= 1.0) {
+      cardColor = Colors.blue[50];
       statusIcon = Icons.trending_down;
-      statusText = 'ÚLTIMA CUOTA';
-    } else if (remaining > calcPayment * 2) {
-      statusColor = Colors.red;
-      statusIcon = Icons.warning;
-      statusText = 'ALTO SALDO';
+      statusText = 'CASI PAGADO';
     }
 
     return Card(
-      key: ValueKey(loan.id),
+      key: ValueKey(key), // IMPORTANTE: cada elemento necesita una Key para reordenamiento
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      elevation: 2,
+      color: cardColor,
       child: ListTile(
-        leading: Container(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(22)),
-          child: Icon(statusIcon, color: statusColor, size: 22),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        leading: CircleAvatar(
+          backgroundColor: Theme.of(context).primaryColor,
+          child: Icon(statusIcon, color: Colors.white),
         ),
-        title: Row(children: [
-          Expanded(
-            child: Text(clientName, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16), maxLines: 1, overflow: TextOverflow.ellipsis),
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: statusColor.withOpacity(0.1), borderRadius: BorderRadius.circular(12), border: Border.all(color: statusColor.withOpacity(0.3))),
-            child: Text(statusText, style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor)),
-          ),
-        ]),
-        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SizedBox(height: 4),
-          Text('Préstamo #$loanIdDisplay', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
-          if (remaining <= _residualThreshold)
-            Text('Saldo residual: ${_currency_formatter.format(remaining)}', style: TextStyle(fontSize: 12, color: Colors.orange[800], fontWeight: FontWeight.w500)),
-          Text('Saldo total: ${_currency_formatter.format(remaining)}', style: TextStyle(fontSize: 12, color: Colors.grey[600], fontWeight: FontWeight.w500)),
-        ]),
-        // ✅ CORREGIDO: Reemplazado trailing anterior por un Row para evitar overflow
+        title: Row(
+          children: [
+            Expanded(child: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold))),
+            if (statusText.isNotEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  statusText,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                ),
+              ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Préstamo #$loanIdDisplay • Vence: $dueDateText'),
+            if (saldo <= _residualThreshold)
+              Text(
+                'Saldo residual: ${_currencyFormatter.format(saldo)}',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.orange[800],
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Contenedor para el monto y la etiqueta "Hoy"
+            // Indicador de monto
             Column(
               mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  _currency_formatter.format(calcPayment),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: statusColor,
-                    fontSize: 16,
-                  ),
+                  _currencyFormatter.format(amountDueToday),
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
                 ),
-                Text(
-                  'Hoy',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
+                if (saldo <= _residualThreshold)
+                  Text(
+                    'Residual',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.orange[800],
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
               ],
             ),
-            // Espaciado entre texto y botones
             const SizedBox(width: 8),
-            // Contenedor para los botones de acción
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.phone, color: Colors.green),
-                  onPressed: () => _makePhoneCall('3206451037'), // Reemplaza con el número real del cliente
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chat, color: Colors.green),
-                  onPressed: () => _sendWhatsAppMessage('3206451037', 'Hola, ¿cómo va el pago del préstamo #${_getShortLoanId(loan)}?'), // Reemplaza con número real
-                ),
-              ],
+            // Handle para arrastrar (mejor experiencia que long-press en algunos casos)
+            ReorderableDragStartListener(
+              index: _dailyLoans.indexOf(loan),
+              child: const Padding(
+                padding: EdgeInsets.only(right: 8.0),
+                child: Icon(Icons.drag_handle),
+              ),
             ),
           ],
         ),
         onTap: () async {
-          final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)));
-          if (result == true && mounted) {
-            await _handlePaymentSuccess(loan);
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => PaymentFormScreen(loan: loan)),
+          );
+
+          if (result == true) {
+            setState(() {
+              _isLoading = true;
+            });
+
+            await Future.delayed(const Duration(milliseconds: 1000));
+            await _loadDailyLoans();
+
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('✅ Lista actualizada automáticamente'),
+                  backgroundColor: Colors.green,
+                  duration: Duration(seconds: 2),
+                ),
+              );
+            }
           }
         },
       ),
     );
   }
 
-  void _onReorder(int oldIndex, int newIndex) {
-    setState(() {
-      if (newIndex > oldIndex) newIndex -= 1;
-      final item = _dailyLoans.removeAt(oldIndex);
-      _dailyLoans.insert(newIndex, item);
-    });
-    // Si quieres persistir el orden, podemos guardar un campo en LoanModel o en otro storage.
-  }
-
   Widget _buildBody() {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-
     if (_loadErrorMessage != null) {
-      return Center(child: Padding(padding: const EdgeInsets.all(24.0), child: Text(_loadErrorMessage!, textAlign: TextAlign.center)));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(_loadErrorMessage!, textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              ElevatedButton(onPressed: _loadDailyLoans, child: const Text('Reintentar')),
+            ],
+          ),
+        ),
+      );
     }
-
-    if (_dailyLoans.isEmpty) {
-      return const Center(child: Text('No hay cobros para esta fecha'));
-    }
+    if (_dailyLoans.isEmpty) return const Center(child: Text('No hay cobros programados para esta fecha.'));
 
     return ReorderableListView.builder(
-      onReorder: _onReorder,
+      padding: const EdgeInsets.only(bottom: 32),
       itemCount: _dailyLoans.length,
-      buildDefaultDragHandles: false,
-      itemBuilder: (context, index) {
-        final loan = _dailyLoans[index];
-        return _buildLoanTile(loan);
+      onReorder: (oldIndex, newIndex) async {
+        setState(() {
+          if (oldIndex < newIndex) newIndex -= 1;
+          final item = _dailyLoans.removeAt(oldIndex);
+          _dailyLoans.insert(newIndex, item);
+        });
+        await _saveCurrentOrder();
       },
+      buildDefaultDragHandles: false, // usamos nuestro propio ReorderableDragStartListener
+      itemBuilder: (context, index) => _buildLoanTile(_dailyLoans[index]),
     );
   }
 
@@ -517,31 +561,47 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cobros del Día'),
+        title: const Text('Cobros de Hoy'),
+        centerTitle: true,
+        backgroundColor: const Color(0xFF1E88E5),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              setState(() => _isLoading = true);
-              _loadDailyLoans();
+            onPressed: () async {
+              setState(() {
+                _isLoading = true;
+              });
+              await _loadDailyLoans();
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🔄 Lista actualizada'),
+                    duration: Duration(seconds: 1),
+                  ),
+                );
+              }
             },
           ),
         ],
       ),
-      body: Column(children: [
-        _buildHeader(context),
-        Expanded(child: _buildBody()),
-      ]),
+      body: Column(
+        children: [
+          _buildHeader(context),
+          Expanded(child: _buildBody()),
+        ],
+      ),
     );
   }
 
-  Widget _buildSummaryItem(String title, String value, IconData icon, Color color) {
-    return Column(children: [
-      Icon(icon, size: 32, color: color),
-      const SizedBox(height: 8),
-      Text(title, style: const TextStyle(fontWeight: FontWeight.w500)),
-      const SizedBox(height: 4),
-      Text(value, style: TextStyle(fontWeight: FontWeight.bold, color: color)),
-    ]);
+  Widget _buildSummaryItem(String title, String value, IconData icon, [Color? iconColor]) {
+    return Column(
+      children: [
+        Icon(icon, size: 28, color: iconColor ?? Theme.of(context).primaryColor),
+        const SizedBox(height: 6),
+        Text(title, style: Theme.of(context).textTheme.bodyLarge),
+        const SizedBox(height: 6),
+        Text(value, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold)),
+      ],
+    );
   }
 }
