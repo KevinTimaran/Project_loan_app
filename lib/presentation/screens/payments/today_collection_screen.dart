@@ -563,7 +563,6 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
       appBar: AppBar(
         title: const Text('Cobros de Hoy'),
         centerTitle: true,
-        backgroundColor: const Color(0xFF1E88E5),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
