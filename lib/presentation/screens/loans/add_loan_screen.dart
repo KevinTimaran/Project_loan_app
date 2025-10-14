@@ -9,6 +9,9 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:uuid/uuid.dart';
 
+// Importa la utilidad
+import 'package:loan_app/utils/schedule_calculator.dart';
+
 class AddLoanScreen extends StatefulWidget {
   const AddLoanScreen({super.key});
 
@@ -89,7 +92,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
             break;
           case 'Mensual':
           default:
-            // sum months safely
             int year = _startDate.year;
             int month = _startDate.month + term;
             year += (month - 1) ~/ 12;
@@ -126,7 +128,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     });
   }
 
-  /// Genera fechas y montos (trabaja en centavos internamente para evitar residuos flotantes).
+  /// Envoltorio privado que usa la utilidad externa para mantener compat con el resto del código.
   Map<String, dynamic> _generateSchedule({
     required double amount,
     required double annualRatePercent,
@@ -134,83 +136,19 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     required DateTime startDate,
     required String frequency,
   }) {
-    final List<DateTime> dates = [];
-    final List<double> installments = [];
-    if (term <= 0) {
-      return {'dates': dates, 'installments': installments, 'total': 0.0};
-    }
+    final result = generateSchedule(
+      amount: amount,
+      annualRatePercent: annualRatePercent,
+      term: term,
+      startDate: startDate,
+      frequency: frequency,
+    );
 
-    // periodo y tasa por periodo
-    double periodRate;
-    Duration periodDuration;
-
-    switch (frequency) {
-      case 'Diario':
-        periodRate = (annualRatePercent / 100) / 365;
-        periodDuration = const Duration(days: 1);
-        break;
-      case 'Semanal':
-        periodRate = (annualRatePercent / 100) / 52;
-        periodDuration = const Duration(days: 7);
-        break;
-      case 'Quincenal':
-        periodRate = (annualRatePercent / 100) / 24;
-        periodDuration = const Duration(days: 15);
-        break;
-      case 'Mensual':
-      default:
-        periodRate = (annualRatePercent / 100) / 12;
-        periodDuration = const Duration(days: 30);
-        break;
-    }
-
-    // convertimos al nivel de centavos (int)
-    final int principalCents = (amount * 100).round();
-    final int principalPerPaymentCents = principalCents ~/ term;
-    final int principalRemainder = principalCents - (principalPerPaymentCents * term);
-
-    int remainingCents = principalCents;
-    int totalToPayCents = 0;
-
-    for (int i = 0; i < term; i++) {
-      // calcular fecha
-      DateTime date;
-      if (frequency == 'Mensual') {
-        int year = startDate.year;
-        int month = startDate.month + i;
-        year += (month - 1) ~/ 12;
-        month = ((month - 1) % 12) + 1;
-        int day = startDate.day;
-        final int lastDay = DateTime(year, month + 1, 0).day;
-        if (day > lastDay) day = lastDay;
-        date = DateTime(year, month, day);
-      } else {
-        date = startDate.add(periodDuration * i);
-      }
-      final normalizedDate = _normalizeDate(date);
-      dates.add(normalizedDate);
-
-      // interés sobre saldo actual (en centavos)
-      final double interestRaw = remainingCents * periodRate;
-      final int interestCents = interestRaw.round();
-
-      // principal para esta cuota (distribuir remainder en la última cuota)
-      final int principalPortionCents = principalPerPaymentCents + (i == term - 1 ? principalRemainder : 0);
-
-      final int paymentCents = principalPortionCents + interestCents;
-
-      // actualizar contadores
-      totalToPayCents += paymentCents;
-      remainingCents = (remainingCents - principalPortionCents).clamp(0, 1 << 62);
-
-      // guardar cuota como double (pesos)
-      installments.add(paymentCents / 100.0);
-    }
-
-    // total en pesos
-    final double totalToPay = totalToPayCents / 100.0;
-
-    return {'dates': dates, 'installments': installments, 'total': totalToPay};
+    return {
+      'dates': result.dates,
+      'installments': result.installments,
+      'total': result.total,
+    };
   }
 
   Future<void> _saveLoan() async {
@@ -241,7 +179,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         final double annualInterestPercent = double.parse(_interestRateController.text);
         final int term = int.parse(_termValueController.text);
 
-        // 4. Generar schedule (fechas y montos) - tu función existente devuelve doubles
+        // 4. Generar schedule (usando la utilidad compartida)
         final schedule = _generateSchedule(
           amount: parsedAmount,
           annualRatePercent: annualInterestPercent,
@@ -250,34 +188,27 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
           frequency: _selectedPaymentFrequency,
         );
 
-        // Convertimos el schedule a centavos para coherencia
         final List<DateTime> paymentDates = (schedule['dates'] as List<DateTime>)
             .map((d) => _normalizeDate(d))
             .toList();
 
-        // Los importes por cuota en double (ej: 1234.56)
         final List<double> installmentsD = (schedule['installments'] as List).map((e) => (e as num).toDouble()).toList();
 
-        // Convertir cada cuota a centavos redondeando
+        // convertimos cada cuota a centavos y sumamos para total exacto
         final List<int> installmentsCents = installmentsD.map((d) => (d * 100).round()).toList();
-
-        // totalToPay en centavos: preferimos sumar desde installmentsCents para evitar drift
         final int totalToPayCents = installmentsCents.fold<int>(0, (s, c) => s + c);
-
-        // cuota representativa (la primera) en centavos
         final int firstInstallmentCents = installmentsCents.isNotEmpty ? installmentsCents.first : 0;
 
-        // convertir de vuelta a double con 2 decimales
         final double totalToPay = (totalToPayCents / 100.0);
         final double calculatedPaymentAmount = (firstInstallmentCents / 100.0);
 
-        // 5. Crear el LoanModel e incluir paymentDates y cálculos
+        // 5. Crear LoanModel
         final newLoan = LoanModel(
           id: const Uuid().v4(),
           clientId: newClient.id,
           clientName: newClient.name,
           amount: parsedAmount,
-          interestRate: annualInterestPercent / 100, // guardamos en decimal (si tu modelo espera decimal)
+          interestRate: annualInterestPercent / 100,
           termValue: term,
           startDate: _normalizeDate(_startDate),
           dueDate: _normalizeDate(_dueDate),
@@ -289,7 +220,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
           paymentDates: paymentDates,
           calculatedPaymentAmount: double.parse((calculatedPaymentAmount).toStringAsFixed(2)),
           totalAmountToPay: double.parse((totalToPay).toStringAsFixed(2)),
-          remainingBalance: double.parse((totalToPay).toStringAsFixed(2)), // IMPORTANT: inicializamos el remaining con TOTAL a pagar
+          remainingBalance: double.parse((totalToPay).toStringAsFixed(2)),
           totalPaid: 0.0,
         );
 

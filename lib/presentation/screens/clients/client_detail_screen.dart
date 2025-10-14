@@ -56,7 +56,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar Eliminación'),
-        content: Text('¿Estás seguro de que quieres eliminar a ${_client!.name} ${_client!.lastName}?'),
+        content: Text('¿Estás seguro de que quieres eliminar a ${_client!.name} ${_client!.lastName}? Esta acción no se puede deshacer.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -78,7 +78,10 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cliente eliminado exitosamente')),
         );
-        Navigator.pop(context);
+        // ✅ SALIR DE LA PANTALLA DESPUÉS DE ELIMINAR
+        if (mounted) {
+          Navigator.pop(context);
+        }
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error al eliminar cliente: $e')),
@@ -126,7 +129,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
 
   void _sendWhatsAppMessage() {
     if (_client?.whatsapp != null && _client!.whatsapp.isNotEmpty) {
-      // ✅ URL CORREGIDA: Sin espacios en blanco
       _launchUrl('https://wa.me/${_client!.whatsapp}');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -135,7 +137,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     }
   }
 
-  // ✅ Función para abrir la pantalla de edición
   void _openEditClient() async {
     final result = await Navigator.push(
       context,
@@ -144,7 +145,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       ),
     );
     if (result == true) {
-      _loadClientDetails(); // Recargar datos si se guardaron cambios
+      _loadClientDetails();
     }
   }
 
@@ -160,14 +161,13 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('${_client!.name} ${_client!.lastName}'),
-        // ✅ No hay botón de editar en la AppBar
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🎯 Tarjeta de información del cliente
+            // 🎯 Tarjeta de información del cliente CON BOTÓN DE ELIMINAR
             Card(
               elevation: 4,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -176,13 +176,25 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✏️ Botón de editar DENTRO de la tarjeta
+                    // ✏️ Botones de editar y eliminar DENTRO de la tarjeta
                     Align(
                       alignment: Alignment.topRight,
-                      child: IconButton(
-                        icon: const Icon(Icons.edit, color: Colors.blue),
-                        onPressed: _openEditClient,
-                        tooltip: 'Editar cliente',
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // 🗑️ BOTÓN DE ELIMINAR
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: _confirmDeleteClient,
+                            tooltip: 'Eliminar cliente',
+                          ),
+                          // ✏️ BOTÓN DE EDITAR
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.blue),
+                            onPressed: _openEditClient,
+                            tooltip: 'Editar cliente',
+                          ),
+                        ],
                       ),
                     ),
                     _buildInfoRow('Nombre:', '${_client!.name} ${_client!.lastName}'),

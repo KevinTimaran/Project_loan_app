@@ -1,8 +1,10 @@
 // lib/presentation/screens/auth/pin_validation_screen.dart
 
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 
 class PinValidationScreen extends StatefulWidget {
   const PinValidationScreen({super.key});
@@ -20,6 +22,7 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   String? _error;
   final String _boxName = 'app_settings';
   final String _pinKey = 'pinCode';
+  bool _hiveInitialized = false;
 
   @override
   void initState() {
@@ -29,12 +32,19 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
 
   Future<void> _initHiveAndLoadPin() async {
     try {
+      // ✅ INICIALIZACIÓN ROBUSTA DE HIVE PARA TESTS Y PRODUCCIÓN
+      if (!_hiveInitialized) {
+        await _initializeHive();
+      }
+
       // Abre la caja de settings si no está abierta
       if (!Hive.isBoxOpen(_boxName)) {
         await Hive.openBox(_boxName);
       }
+      
       final box = Hive.box(_boxName);
       final value = box.get(_pinKey);
+      
       if (value != null && value is String && value.trim().isNotEmpty) {
         _storedPin = value;
         _hasPin = true;
@@ -43,11 +53,10 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
         _hasPin = false;
       }
     } catch (e) {
-      // Si hay error, asumimos que no hay PIN y mostramos UI para crearlo
+      // Si hay error, asumimos que no hay PIN
       _storedPin = null;
       _hasPin = false;
-      // opcional: puedes loguear el error
-      // print('Error leyendo PIN desde Hive: $e');
+      print('Error inicializando Hive o leyendo PIN: $e');
     } finally {
       if (mounted) {
         setState(() {
@@ -57,18 +66,60 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
     }
   }
 
+  // ✅ FUNCIÓN MEJORADA PARA INICIALIZAR HIVE
+  Future<void> _initializeHive() async {
+    try {
+      // Primero intentamos con path_provider (para producción)
+      final appDir = await getApplicationDocumentsDirectory();
+      await Hive.initFlutter(appDir.path);
+      _hiveInitialized = true;
+    } catch (e) {
+      // Fallback para entorno de tests
+      try {
+        final tempDir = await Directory.systemTemp.createTemp();
+        await Hive.initFlutter(tempDir.path);
+        _hiveInitialized = true;
+      } catch (e2) {
+        // Último recurso: intentar sin path específico
+        try {
+          Hive.init(null);
+          _hiveInitialized = true;
+        } catch (e3) {
+          print('No se pudo inicializar Hive: $e3');
+          _hiveInitialized = false;
+        }
+      }
+    }
+  }
+
   Future<void> _savePin(String pin) async {
-    final box = Hive.box(_boxName);
-    await box.put(_pinKey, pin);
-    _storedPin = pin;
-    _hasPin = true;
+    try {
+      if (!_hiveInitialized) {
+        await _initializeHive();
+      }
+      
+      final box = Hive.box(_boxName);
+      await box.put(_pinKey, pin);
+      _storedPin = pin;
+      _hasPin = true;
+    } catch (e) {
+      throw Exception('Error guardando PIN: $e');
+    }
   }
 
   Future<void> _deletePin() async {
-    final box = Hive.box(_boxName);
-    await box.delete(_pinKey);
-    _storedPin = null;
-    _hasPin = false;
+    try {
+      if (!_hiveInitialized) {
+        await _initializeHive();
+      }
+      
+      final box = Hive.box(_boxName);
+      await box.delete(_pinKey);
+      _storedPin = null;
+      _hasPin = false;
+    } catch (e) {
+      throw Exception('Error eliminando PIN: $e');
+    }
   }
 
   void _onValidatePressed() {
@@ -90,7 +141,9 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       }
       _savePin(input).then((_) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN guardado correctamente')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('PIN guardado correctamente'))
+          );
           _pinController.clear();
           // Navegar a home
           Navigator.pushReplacementNamed(context, '/home');
@@ -120,8 +173,14 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
         title: const Text('Olvidé PIN'),
         content: const Text('¿Deseas eliminar el PIN guardado y configurar uno nuevo?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('Eliminar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false), 
+            child: const Text('Cancelar')
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true), 
+            child: const Text('Eliminar')
+          ),
         ],
       ),
     );
@@ -129,7 +188,9 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
     if (shouldReset == true) {
       await _deletePin();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN eliminado. Ingresa uno nuevo.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('PIN eliminado. Ingresa uno nuevo.'))
+        );
         setState(() {
           _pinController.clear();
           _error = null;
@@ -145,7 +206,9 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   }
 
   Widget _buildContent() {
-    final subtitle = _hasPin ? 'Ingresa tu PIN' : 'Crea un PIN de acceso (mín. 4 dígitos)';
+    final subtitle = _hasPin 
+        ? 'Ingresa tu PIN' 
+        : 'Crea un PIN de acceso (mín. 4 dígitos)';
     final actionLabel = _hasPin ? 'Validar PIN' : 'Crear PIN';
 
     return Column(
@@ -153,7 +216,10 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       children: [
         Icon(Icons.lock, size: 72, color: Theme.of(context).primaryColor),
         const SizedBox(height: 12),
-        Text('Validación de credenciales', style: Theme.of(context).textTheme.titleMedium),
+        Text(
+          'Validación de credenciales', 
+          style: Theme.of(context).textTheme.titleMedium
+        ),
         const SizedBox(height: 8),
         Text(subtitle, style: const TextStyle(color: Colors.grey)),
         const SizedBox(height: 20),
@@ -192,7 +258,10 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
             child: const Text('Olvidé mi PIN / Resetear'),
           ),
         const SizedBox(height: 20),
-        Text('Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        Text(
+          'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}', 
+          style: const TextStyle(fontSize: 12, color: Colors.grey)
+        ),
       ],
     );
   }
@@ -200,7 +269,6 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Mantén el AppBar si tu diseño lo requiere. Lo dejamos simple.
       appBar: AppBar(title: const Text('Validación de Credenciales')),
       body: Center(
         child: _loading

@@ -1,6 +1,5 @@
-// lib/main.dart (SUGERENCIA - no cambia nombres públicos)
+// lib/main.dart - VERSIÓN CORREGIDA
 import 'package:flutter/material.dart';
-// ✅ ADD: Import for localizations
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
@@ -10,7 +9,6 @@ import 'dart:io';
 import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/domain/entities/payment.dart';
-
 import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:loan_app/presentation/screens/loans/add_loan_screen.dart';
@@ -18,46 +16,93 @@ import 'package:loan_app/presentation/screens/loans/loan_list_screen.dart';
 import 'package:loan_app/presentation/screens/home_screen.dart';
 import 'package:loan_app/presentation/screens/auth/pin_validation_screen.dart';
 import 'package:loan_app/presentation/screens/payments/payment_form_screen.dart';
-
-// ✅ NUEVO: Importar servicios
-import 'package:loan_app/services/notifications_service.dart'; // <-- Asegúrate de que esta línea esté
+import 'package:loan_app/services/notifications_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ✅ DETECCIÓN DE MODO TEST
+  bool isInTestMode = false;
+  assert(() {
+    isInTestMode = true;
+    return true;
+  }());
+
   String hivePath;
 
-  if (Platform.isLinux) {
+  if (isInTestMode) {
+    // ✅ RUTA TEMPORAL PARA TESTS
+    final tempDir = await Directory.systemTemp.createTemp('loan_app_test_${DateTime.now().millisecondsSinceEpoch}');
+    hivePath = tempDir.path;
+    debugPrint('DEBUG: MODO TEST - Hive usando ruta temporal: $hivePath');
+  } else if (Platform.isLinux) {
     final Directory appDir = Directory('${Platform.environment['HOME']}/Documentos/hive_data');
     await appDir.create(recursive: true);
     hivePath = appDir.path;
+    debugPrint('DEBUG: Hive usando la ruta: $hivePath');
   } else {
     final Directory appDir = await getApplicationDocumentsDirectory();
     hivePath = appDir.path;
+    debugPrint('DEBUG: Hive usando la ruta: $hivePath');
   }
 
-  // Inicializa Hive en ruta decidida
-  await Hive.initFlutter(hivePath);
-  debugPrint('DEBUG: Hive usando la ruta: $hivePath');
-
-  // Registrar adaptadores
-  Hive.registerAdapter(ClientAdapter());
-  Hive.registerAdapter(LoanModelAdapter());
-  Hive.registerAdapter(PaymentAdapter());
-
-  // Abrir cajas con try/catch para evitar crash si algo falla
+  // ✅ INICIALIZACIÓN ROBUSTA DE HIVE
   try {
-    if (!Hive.isBoxOpen('clients')) await Hive.openBox<Client>('clients').timeout(const Duration(seconds: 3));
-    if (!Hive.isBoxOpen('loans')) await Hive.openBox<LoanModel>('loans').timeout(const Duration(seconds: 3));
-    if (!Hive.isBoxOpen('payments')) await Hive.openBox<Payment>('payments').timeout(const Duration(seconds: 3));
-    debugPrint('DEBUG: Cajas Hive abiertas correctamente ✅');
+    if (!Hive.isAdapterRegistered(0)) {
+      Hive.registerAdapter(ClientAdapter());
+    }
+    if (!Hive.isAdapterRegistered(1)) {
+      Hive.registerAdapter(LoanModelAdapter());
+    }
+    if (!Hive.isAdapterRegistered(2)) {
+      Hive.registerAdapter(PaymentAdapter());
+    }
+    
+    await Hive.initFlutter(hivePath);
+    
+    // ✅ CORREGIDO: ABRIR CAJAS CON TIPOS ESPECÍFICOS
+    if (!Hive.isBoxOpen('clients')) {
+      await Hive.openBox<Client>('clients').timeout(const Duration(seconds: 3));
+      debugPrint('DEBUG: Caja clients abierta correctamente');
+    }
+    if (!Hive.isBoxOpen('loans')) {
+      await Hive.openBox<LoanModel>('loans').timeout(const Duration(seconds: 3));
+      debugPrint('DEBUG: Caja loans abierta correctamente');
+    }
+    if (!Hive.isBoxOpen('payments')) {
+      await Hive.openBox<Payment>('payments').timeout(const Duration(seconds: 3));
+      debugPrint('DEBUG: Caja payments abierta correctamente');
+    }
+    if (!Hive.isBoxOpen('app_settings')) {
+      await Hive.openBox('app_settings').timeout(const Duration(seconds: 3));
+      debugPrint('DEBUG: Caja app_settings abierta correctamente');
+    }
+    
+    debugPrint('DEBUG: Todas las cajas Hive abiertas correctamente ✅');
   } catch (e, st) {
-    // Si abrir cajas falla, lo registramos y seguimos: la app puede crear cajas al vuelo.
-    debugPrint('WARN: No se pudieron abrir las cajas Hive al inicio: $e\n$st');
+    debugPrint('ERROR: Fallo al inicializar Hive: $e');
+    debugPrint('Stack trace: $st');
+    
+    // ✅ RECUPERACIÓN EN CASO DE ERROR
+    try {
+      await Hive.close();
+      await Hive.initFlutter(hivePath);
+      debugPrint('DEBUG: Hive reinicializado después de error');
+    } catch (recoveryError) {
+      debugPrint('ERROR CRÍTICO: No se pudo recuperar Hive: $recoveryError');
+    }
   }
 
-  // ✅ NUEVO: Inicializar el servicio de notificaciones (ahora maneja plataformas incompatibles)
-  await NotificationsService().init(); // <-- Esta línea ya no debería causar el crash en Linux
+  // ✅ INICIALIZAR SERVICIO DE NOTIFICACIONES SOLO SI NO ES TEST
+  if (!isInTestMode) {
+    try {
+      await NotificationsService().init();
+    } catch (e) {
+      debugPrint('DEBUG: Servicio de notificaciones no inicializado: $e');
+    }
+  } else {
+    debugPrint('DEBUG: MODO TEST - Saltando inicialización de notificaciones');
+  }
 
   runApp(
     ChangeNotifierProvider(
@@ -69,6 +114,7 @@ Future<void> main() async {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+  
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -77,15 +123,14 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      // ✅ ADD: Localization configuration
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
       supportedLocales: const [
-        Locale('es', 'ES'), // Spanish first
-        Locale('en', 'US'), // English as fallback
+        Locale('es', 'ES'),
+        Locale('en', 'US'),
       ],
       locale: const Locale('es', 'ES'),
       initialRoute: '/',
@@ -95,7 +140,7 @@ class MyApp extends StatelessWidget {
         '/clientList': (context) => const ClientListScreen(),
         '/addLoan': (context) => const AddLoanScreen(),
         '/loanList': (context) => const LoanListScreen(),
-        '/addPayment': (context) => const PaymentFormScreen(),
+        '/addPayment': (context) => const PaymentFormScreen(loan: null),
       },
     );
   }
