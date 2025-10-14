@@ -5,7 +5,7 @@ publish_to: 'none'
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.2.6 <4.0.0"   # Actualizado para Dart 3.8+
+  sdk: ">=3.2.6 <4.0.0" # Compatible con Dart 3.8+
 
 dependencies:
   flutter:
@@ -22,12 +22,15 @@ dependencies:
   google_fonts: ^6.1.0
   shared_preferences: ^2.5.3
   currency_text_input_formatter: ^2.3.0
-  url_launcher: ^6.3.0
   font_awesome_flutter: ^10.6.0
-  flutter_local_notifications: ^19.4.2 
+  flutter_local_notifications: ^19.4.2
+  # Se mantuvo la versión más reciente que tenías (6.3.0) y se eliminó la duplicada (6.2.6)
+  url_launcher: ^6.3.0 
 
 dev_dependencies:
   flutter_test:
+    sdk: flutter
+  integration_test:
     sdk: flutter
   flutter_lints: ^6.0.0
   hive_generator: ^2.0.1

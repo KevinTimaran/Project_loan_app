@@ -1,13 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.example.loan_app"> <!-- Asegúrate que este package coincida con applicationId -->
+    package="com.example.loan_app">
 
-    <!-- Permisos para notificaciones -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
-
-    <!-- Permiso para realizar llamadas directas -->
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    
+    <uses-permission android:name="android.permission.INTERNET"/> 
 
     <application
         android:label="loan_app"
@@ -22,10 +21,6 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
-            <!-- Specifies an Android theme to apply to this Activity as soon as
-                 the Android process has started. This theme is visible to the user
-                 while the Flutter UI initializes. After that, this theme continues
-                 to determine the Window background behind the Flutter UI. -->
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
@@ -36,37 +31,35 @@
             </intent-filter>
         </activity>
 
-        <!-- Servicio requerido por flutter_local_notifications -->
         <service
             android:name="com.dexterous.flutterlocalnotifications.ForegroundService"
             android:exported="false"
             android:permission="android.permission.BIND_JOB_SERVICE" />
 
-        <!-- Don't delete the meta-data below.
-             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- Queries necesarias para Android 11+ -->
     <queries>
-        <!-- Para el plugin de texto Flutter -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
 
-        <!-- Para poder abrir WhatsApp -->
         <package android:name="com.whatsapp" />
 
-        <!-- Para poder abrir el dialer de llamadas o la app de teléfono -->
         <intent>
             <action android:name="android.intent.action.DIAL" />
         </intent>
-        <!-- Opcional: Para intentar llamar directamente con 'tel:' -->
         <intent>
             <action android:name="android.intent.action.CALL" />
         </intent>
+
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+        
     </queries>
 </manifest>

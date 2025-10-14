@@ -1,3 +1,4 @@
+// lib/presentation/screens/clients/client_detail_screen.dart
 import 'package:flutter/material.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
@@ -78,11 +79,20 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cliente eliminado exitosamente')),
         );
-        Navigator.pop(context);
+        // Navegar hacia atrás dos veces: una para salir de ClientHistoryScreen (si se vino desde allí)
+        // y otra para salir de ClientDetailScreen.
+        // O simplemente pop hasta la raíz si se sabe que es la pantalla de detalles.
+        // Para simplificar, simplemente volvemos.
+        if (mounted) {
+          Navigator.pop(context); // Sale de ClientDetailScreen
+          // Si necesitas volver más atrás, puedes usar Navigator.popUntil(context, ModalRoute.withName('/ruta_anterior'));
+        }
       } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al eliminar cliente: $e')),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al eliminar cliente: $e')),
+          );
+        }
       }
     }
   }
@@ -108,9 +118,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     if (await canLaunchUrl(Uri.parse(url))) {
       await launchUrl(Uri.parse(url));
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No se pudo abrir la aplicación.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se pudo abrir la aplicación.')),
+        );
+      }
     }
   }
 
@@ -118,20 +130,24 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     if (_client?.phone != null && _client!.phone.isNotEmpty) {
       _launchUrl('tel:${_client!.phone}');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El cliente no tiene un número de teléfono registrado.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El cliente no tiene un número de teléfono registrado.')),
+        );
+      }
     }
   }
 
   void _sendWhatsAppMessage() {
     if (_client?.whatsapp != null && _client!.whatsapp.isNotEmpty) {
       // ✅ URL CORREGIDA: Sin espacios en blanco
-      _launchUrl('https://wa.me/${_client!.whatsapp}');
+      _launchUrl('https://wa.me/${_client!.whatsapp}'); 
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El cliente no tiene un número de WhatsApp registrado.')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El cliente no tiene un número de WhatsApp registrado.')),
+        );
+      }
     }
   }
 
@@ -143,7 +159,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
         builder: (context) => ClientFormScreen(client: _client),
       ),
     );
-    if (result == true) {
+    if (result == true && mounted) {
       _loadClientDetails(); // Recargar datos si se guardaron cambios
     }
   }
@@ -158,9 +174,17 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     }
 
     return Scaffold(
+      // ✅ AppBar con botón de eliminar
       appBar: AppBar(
         title: Text('${_client!.name} ${_client!.lastName}'),
-        // ✅ No hay botón de editar en la AppBar
+        actions: [
+          // ✅ Botón de eliminar en la AppBar
+          IconButton(
+            icon: const Icon(Icons.delete, color: Colors.red),
+            onPressed: _confirmDeleteClient,
+            tooltip: 'Eliminar cliente',
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -176,7 +200,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✏️ Botón de editar DENTRO de la tarjeta
+                    // ✏️ Botón de editar DENTRO de la tarjeta (mantenido)
                     Align(
                       alignment: Alignment.topRight,
                       child: IconButton(
@@ -246,7 +270,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     );
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  Widget _buildInfoRow(String label, String? value) {
+    // Manejar valores nulos o vacíos
+    final displayValue = value != null && value.isNotEmpty ? value : 'N/A';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
@@ -259,7 +285,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
-          Expanded(child: Text(value)),
+          Expanded(child: Text(displayValue)),
         ],
       ),
     );

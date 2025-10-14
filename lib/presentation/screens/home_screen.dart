@@ -3,6 +3,7 @@
 //#########################################
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Para Clipboard
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
@@ -21,6 +22,307 @@ import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
 import 'package:intl/intl.dart';
 // ✅ Importar la pantalla de historial real
 import 'package:loan_app/presentation/screens/payments/payment_history_screen.dart';
+// ✅ NUEVO: Importar url_launcher
+import 'package:url_launcher/url_launcher.dart';
+
+
+class CreatorInfoScreen extends StatelessWidget {
+  const CreatorInfoScreen({super.key});
+
+  // Helper para construir las filas de información no interactivas
+  Widget _buildInfoRow(IconData icon, String title, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, color: const Color(0xFF1E88E5), size: 20),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  color: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ Método para fila de email copiable con feedback visual
+  Widget _buildCopyableEmailRow(BuildContext context, IconData icon, String title, String email) {
+    return InkWell(
+      onTap: () async {
+        // Copiar el email al portapapeles
+        await Clipboard.setData(ClipboardData(text: email));
+        
+        // Mostrar mensaje de confirmación
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Correo copiado: $email'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: const Color(0xFF43A047), // Verde de éxito
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: const Color(0xFF1E88E5), size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    email,
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Toca para copiar',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF1E88E5),
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.content_copy, color: Color(0xFF1E88E5), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ✅ MÉTODO CORREGIDO: Manejo de URL más robusto
+  Widget _buildLinkRow(BuildContext context, IconData icon, String title, String url) {
+    return InkWell(
+      onTap: () async {
+        try {
+          // 1. Asegurar que la URL tenga un esquema (https://)
+          String validatedUrl = url.contains('://') ? url : 'https://$url';
+          final uri = Uri.parse(validatedUrl);
+          
+          // 2. Verificar si el enlace se puede abrir
+          if (await canLaunchUrl(uri)) {
+            await launchUrl(
+              uri, 
+              mode: LaunchMode.externalApplication, // Abrir en navegador externo
+            );
+          } else {
+            // Manejar la imposibilidad de abrir
+            if (!context.mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('No se pudo abrir el enlace. Verifica la URL: $validatedUrl'),
+                backgroundColor: const Color(0xFFE53935), // Rojo de error
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        } catch (e) {
+          // Manejar errores de parseo o lanzamiento
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error al procesar el enlace: $e'),
+              backgroundColor: const Color(0xFFE53935),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(icon, color: const Color(0xFF1E88E5), size: 20),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    url,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF1E88E5),
+                      decoration: TextDecoration.underline,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.open_in_new, color: Color(0xFF1E88E5), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Información del Creador'),
+        backgroundColor: const Color(0xFF1E88E5),
+        iconTheme: const IconThemeData(color: Colors.white), // Color del ícono de atrás
+        titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const CircleAvatar(
+              radius: 60,
+              backgroundColor: Color(0xFF1E88E5),
+              child: Icon(
+                Icons.person,
+                size: 50,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'LoanApp',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 5),
+            const Text(
+              'Versión 1.0.0',
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey,
+              ),
+            ),
+            const SizedBox(height: 30),
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Column(
+                  children: [
+                    const Text(
+                      'Desarrollado por:',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.black87,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Kevin Buesaquillo', 
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF1E88E5),
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    const Divider(),
+                    const SizedBox(height: 15),
+                    // ✅ Email copiable con feedback
+                    _buildCopyableEmailRow(context, Icons.email, 'Email:', 'kevinstiventimaran@gmail.com'),
+                    const SizedBox(height: 10),
+                    // ✅ Enlace con manejo de URL robusto
+                    _buildLinkRow(
+                      context,
+                      Icons.link, 
+                      'Contacto Digital:', 
+                      // Se pasa la URL sin https para que el método la añada si es necesario
+                      'linktr.ee/Kevin_Buesaquillo' 
+                    ),
+                    const SizedBox(height: 10),
+                    _buildInfoRow(Icons.code, 'Tecnologías:', 'Flutter, Dart, Hive'),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Padding(
+                padding: EdgeInsets.all(20.0),
+                child: Text(
+                  'Hola, mi nombre es Kevin Stiven y te presento mi primera aplicación, LoanApp. Esta  '
+                  'herramienta está diseñada para la gestión eficiente de préstamos, clientes y pagos, '
+                  'ofreciendo un control financiero completo y seguimiento de cuentas por cobrar. Agradezco tu '
+                  'paciencia con cualquier error que puedas encontrar. Para sugerencias o como podria mejorar, puedes '
+                  'comunicarte conmigo a kevinstiventimaran@gmail.com.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.black87,
+                  ),
+                  textAlign: TextAlign.justify,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------
+//                           PANTALLA PRINCIPAL (HOME)
+// -----------------------------------------------------------------------------
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -183,36 +485,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 Tab(text: 'Historial'),
               ],
             ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.cleaning_services, color: Colors.white),
-                onPressed: () {
-                  _closeKeyboard(); // ✅ Cerrar teclado antes de mostrar diálogo
-                  showDialog(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: const Text('Confirmar Borrado General'),
-                      content: const Text('Esta acción borrará todos los clientes y préstamos. ¿Estás seguro?'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.of(ctx).pop(),
-                          child: const Text('Cancelar'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            Navigator.of(ctx).pop();
-                            _clearAllHiveBoxes();
-                          },
-                          style: ElevatedButton.styleFrom(backgroundColor: kAlertRed),
-                          child: const Text('Borrar Todo'),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                tooltip: 'Borrar todas las bases de datos (solo para pruebas)',
-              ),
-            ],
           ),
           body: TabBarView(
             children: [
@@ -226,30 +498,42 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        margin: const EdgeInsets.only(bottom: 24),
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            children: [
-                              Text(
-                                'Bienvenido a LoanApp',
-                                style: TextStyle(
-                                  fontSize: 26,
-                                  fontWeight: FontWeight.bold,
-                                  color: kHeaderColor,
+                      // ✅ MODIFICADO: Card de bienvenida convertido en botón
+                      InkWell(
+                        onTap: () {
+                          _closeKeyboard();
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (context) => const CreatorInfoScreen()),
+                          );
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Card(
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          margin: const EdgeInsets.only(bottom: 24),
+                          child: const Padding(
+                            padding: EdgeInsets.all(24.0),
+                            child: Column(
+                              children: [
+                                Text(
+                                  'Bienvenido a LoanApp',
+                                  style: TextStyle(
+                                    fontSize: 26,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E88E5),
+                                  ),
+                                  textAlign: TextAlign.center,
                                 ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Gestiona tus préstamos, clientes y pagos de manera eficiente y segura.',
-                                style: TextStyle(fontSize: 16, color: kTextColor.withOpacity(0.8)),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
+                                SizedBox(height: 12),
+                                Text(
+                                  'Gestiona tus préstamos, clientes y pagos de manera eficiente y segura.',
+                                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                                  textAlign: TextAlign.center,
+                                ),
+                                SizedBox(height: 8),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -379,16 +663,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             ),
                             _buildFeatureCard(
                               context,
-                              icon: Icons.payment,
-                              title: 'Registrar Pago',
-                              onTap: () {
-                                _closeKeyboard();
-                                Navigator.of(context).pushNamed('/addPayment');
-                              },
-                              iconColor: kPurpleModule,
-                            ),
-                            _buildFeatureCard(
-                              context,
                               icon: Icons.calculate,
                               title: 'Simulador',
                               onTap: () {
@@ -411,22 +685,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               },
                               iconColor: kHeaderColor,
                             ),
-                            // ✅ Corregido: Navegar a PaymentHistoryScreen
-                            Card(
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.all(12),
-                                leading: Icon(Icons.history, color: kHeaderColor),
-                                title: const Text('Préstamos Activos', textAlign: TextAlign.center),
-                                onTap: () {
-                                  _closeKeyboard();
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),
-                                  );
-                                },
-                              ),
+                            // ✅ Corregido: Navegar a Préstamos Activos
+                            _buildFeatureCard(
+                              context,
+                              icon: Icons.history,
+                              title: 'Préstamos Activos',
+                              onTap: () {
+                                _closeKeyboard();
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => const ActiveLoansScreen()),
+                                );
+                              },
+                              iconColor: kPurpleModule,
+                            ),
+                            // ✅ AÑADIDO: Borrar Bases de Datos
+                            _buildFeatureCard(
+                              context,
+                              icon: Icons.delete_forever,
+                              title: 'Borrar Bases de Datos',
+                              onTap: () {
+                                _closeKeyboard();
+                                _clearAllHiveBoxes();
+                              },
+                              iconColor: kAlertRed,
                             ),
                           ],
                         ),
