@@ -1,4 +1,5 @@
 // lib/data/models/loan_model.dart
+import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
 import 'package:loan_app/domain/entities/payment.dart';
 import 'package:uuid/uuid.dart';
@@ -6,167 +7,266 @@ import 'package:uuid/uuid.dart';
 part 'loan_model.g.dart';
 
 @HiveType(typeId: 2)
-class LoanModel extends HiveObject {
-  // === Mantener los mismos índices que tu adapter generado (.g.dart) ===
+class LoanModel {
   @HiveField(0)
-  late final String id;
+  final String id;
 
   @HiveField(1)
-  late final String clientId;
+  final String clientId;
 
   @HiveField(2)
-  late final String clientName;
+  final String clientName;
 
   @HiveField(3)
-  late final double amount;
+  final double amount;
 
   @HiveField(4)
-  late final double interestRate;
+  final double interestRate;
 
   @HiveField(5)
-  late final int termValue;
+  final int termValue;
 
   @HiveField(6)
-  late final DateTime startDate;
+  final DateTime startDate;
 
   @HiveField(7)
-  late final DateTime dueDate;
+  final DateTime dueDate;
 
   @HiveField(8)
-  late String status;
+  String status;
 
   @HiveField(9)
-  late final String paymentFrequency;
+  final String paymentFrequency;
 
   @HiveField(10)
-  String? whatsappNumber;
+  final String? whatsappNumber;
 
   @HiveField(11)
-  String? phoneNumber;
+  final String? phoneNumber;
 
   @HiveField(12)
-  late final String termUnit;
+  final String termUnit;
 
   @HiveField(13)
-  int? loanNumber;
+  final int? loanNumber;
 
   @HiveField(14)
-  double? totalAmountToPay;
+  final double? totalAmountToPay;
 
   @HiveField(15)
-  double? calculatedPaymentAmount;
+  final double? calculatedPaymentAmount;
 
   @HiveField(16)
-  late double totalPaid;
+  double totalPaid;
 
   @HiveField(17)
-  late double remainingBalance;
+  double remainingBalance;
 
   @HiveField(18)
-  late List<Payment> payments;
+  List<Payment> payments;
 
   @HiveField(19)
-  late List<DateTime> paymentDates;
+  List<DateTime> paymentDates;
 
   LoanModel({
     String? id,
-    required String clientId,
-    required String clientName,
-    required double amount,
-    required double interestRate,
-    required int termValue,
-    required DateTime startDate,
-    required DateTime dueDate,
-    String status = 'activo',
-    required String paymentFrequency,
-    String? whatsappNumber,
-    String? phoneNumber,
-    required String termUnit,
-    int? loanNumber,
-    double? totalAmountToPay,
-    double? calculatedPaymentAmount,
-    double totalPaid = 0.0,
+    required this.clientId,
+    required this.clientName,
+    required this.amount,
+    required this.interestRate,
+    required this.termValue,
+    required this.startDate,
+    required this.dueDate,
+    this.status = 'activo',
+    required this.paymentFrequency,
+    this.whatsappNumber,
+    this.phoneNumber,
+    required this.termUnit,
+    this.loanNumber,
+    this.totalAmountToPay,
+    this.calculatedPaymentAmount,
+    this.totalPaid = 0.0,
     double? remainingBalance,
     List<Payment>? payments,
     List<DateTime>? paymentDates,
-  })  : id = id == null || id.isEmpty ? const Uuid().v4() : id,
-        clientId = clientId,
-        clientName = clientName,
-        amount = amount,
-        interestRate = interestRate,
-        termValue = termValue,
-        startDate = startDate,
-        dueDate = dueDate,
-        status = status,
-        paymentFrequency = paymentFrequency,
-        whatsappNumber = whatsappNumber,
-        phoneNumber = phoneNumber,
-        termUnit = termUnit,
-        loanNumber = loanNumber,
-        totalAmountToPay = totalAmountToPay,
-        calculatedPaymentAmount = calculatedPaymentAmount,
-        totalPaid = totalPaid,
-        // ✅ Inicializar remainingBalance con lógica robusta
-        remainingBalance = remainingBalance ??
-            (totalAmountToPay != null && totalAmountToPay > 0
-                ? totalAmountToPay
-                : amount),
+  })  : id = id ?? const Uuid().v4(),
+        remainingBalance = remainingBalance ?? (totalAmountToPay ?? amount),
         payments = payments ?? <Payment>[],
-        paymentDates = (paymentDates ?? <DateTime>[]).map((d) => DateTime(d.year, d.month, d.day)).toList();
+        paymentDates = paymentDates ?? <DateTime>[];
 
-  /// Comprueba si ya está totalmente pagado (con tolerancia más amplia para residuales)
+  // ✅ MEJORADO: Lógica de isFullyPaid más robusta
   bool get isFullyPaid {
-    // ✅ MEJORADO: Tolerancia más amplia para residuales pequeños comunes
-    return remainingBalance <= 0.50; // Hasta 50 centavos se considera pagado
+    // Si el status ya es 'pagado', retornar true inmediatamente
+    if (status.toLowerCase() == 'pagado') return true;
+    
+    // Si remainingBalance es muy cercano a cero, considerar pagado
+    if (remainingBalance <= 0.01) return true;
+    
+    // Si totalPaid es igual o mayor al totalAmountToPay (con tolerancia)
+    if (totalAmountToPay != null) {
+      return totalPaid >= (totalAmountToPay! - 0.01);
+    }
+    
+    // Fallback: comparar con amount original
+    return totalPaid >= (amount - 0.01);
   }
 
-  /// Devuelve una versión corta del id (5 dígitos numéricos)
+  // ✅ NUEVO: Propiedad para verificar si está activo
+  bool get isActive => status.toLowerCase() == 'activo';
+
   String get shortId {
     final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return '00000';
-    return digits.length <= 5 ? digits.padLeft(5, '0') : digits.substring(digits.length - 5);
+    if (digits.isEmpty) return id.length <= 5 ? id : id.substring(0, 5);
+    return digits.length <= 5 ? digits : digits.substring(digits.length - 5);
   }
 
-  /// Registra un pago en el préstamo (actualiza listas y saldos).
+  // ✅ MEJORADO: registerPayment con lógica más robusta
   void registerPayment(Payment payment) {
-    // ✅ Convertir todo a centavos para precisión exacta
-    final int paymentCents = (payment.amount * 100).round();
-    final int currentRemainingCents = (remainingBalance * 100).round();
-
-    // Calcular nuevo saldo en centavos
-    int newRemainingCents = currentRemainingCents - paymentCents;
-    if (newRemainingCents < 0) newRemainingCents = 0;
-
-    // Actualizar montos en pesos (double) con 2 decimales exactos
-    remainingBalance = newRemainingCents / 100.0;
-    totalPaid += payment.amount;
-
-    // ✅ MEJORADO: Marcar como pagado si el saldo es <= 50 centavos (residuales comunes)
-    if (remainingBalance <= 0.50) {
-      remainingBalance = 0.0;
-      status = 'pagado';
-    }
-
-    // Añadir el pago
+    // Agregar el pago a la lista
     payments.add(payment);
-
-    // Persistir en Hive si es posible
-    try {
-      save();
-    } catch (_) {
-      // Ignorar si no está en Hive
+    
+    // Actualizar total pagado
+    totalPaid += payment.amount;
+    
+    // ✅ CALCULO CORREGIDO: remainingBalance debe ser totalAmountToPay - totalPaid
+    final totalOwed = totalAmountToPay ?? amount;
+    remainingBalance = (totalOwed - totalPaid).clamp(0.0, double.infinity);
+    
+    // ✅ LÓGICA MEJORADA: Marcar como pagado si se cumple
+    if (remainingBalance <= 0.01) {
+      status = 'pagado';
+      remainingBalance = 0.0; // ✅ FORZAR a cero
     }
+    
+    // ✅ ACTUALIZAR paymentDates: remover la fecha del pago realizado
+    _updatePaymentDatesAfterPayment(payment.date);
+    
+    debugPrint('💰 Pago registrado - TotalPagado: $totalPaid, SaldoRestante: $remainingBalance, Estado: $status');
   }
 
+  // ✅ NUEVO: Método para actualizar paymentDates después de un pago
+  void _updatePaymentDatesAfterPayment(DateTime paymentDate) {
+    final normalizedPaymentDate = DateTime(paymentDate.year, paymentDate.month, paymentDate.day);
+    
+    // Remover la fecha del pago realizado de paymentDates
+    paymentDates.removeWhere((date) {
+      final normalizedDate = DateTime(date.year, date.month, date.day);
+      return normalizedDate == normalizedPaymentDate;
+    });
+    
+    debugPrint('📅 PaymentDates actualizado: ${paymentDates.length} fechas restantes');
+  }
+
+  // ✅ CORREGIDO: updateStatus sin save()
   void updateStatus(String newStatus) {
     status = newStatus;
-    try {
-      save();
-    } catch (_) {}
+    // Si se marca como pagado, asegurar que los valores sean consistentes
+    if (newStatus.toLowerCase() == 'pagado') {
+      final totalOwed = totalAmountToPay ?? amount;
+      totalPaid = totalOwed;
+      remainingBalance = 0.0;
+    }
   }
 
-  void normalizePaymentDatesIfNeeded() {
+  void normalizePaymentDates() {
     paymentDates = paymentDates.map((d) => DateTime(d.year, d.month, d.day)).toList();
+  }
+
+  // ✅ MEJORADO: Método para verificar si tiene pagos pendientes para una fecha específica
+  bool hasPaymentDueOn(DateTime date) {
+    // Si está completamente pagado, no tiene pagos pendientes
+    if (isFullyPaid) return false;
+    
+    // Si no está activo, no tiene pagos pendientes
+    if (!isActive) return false;
+    
+    final normalizedDate = DateTime(date.year, date.month, date.day);
+    
+    // Verificar en paymentDates
+    for (final paymentDate in paymentDates) {
+      final normalizedPaymentDate = DateTime(paymentDate.year, paymentDate.month, paymentDate.day);
+      if (normalizedPaymentDate == normalizedDate) {
+        return true;
+      }
+    }
+    
+    // Verificar dueDate como fallback (solo si está en el futuro o es hoy)
+    if (dueDate != null) {
+      final normalizedDueDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
+      if (normalizedDueDate == normalizedDate) {
+        return true;
+      }
+      
+      // ✅ NUEVO: Si la fecha de vencimiento ya pasó, considerar como pago pendiente
+      // hasta que se marque como pagado
+      if (normalizedDueDate.isBefore(normalizedDate) && remainingBalance > 0.01) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  // ✅ MEJORADO: Método para obtener el monto debido hoy
+  double getAmountDueToday() {
+    if (isFullyPaid) return 0.0;
+    if (!isActive) return 0.0;
+    
+    final cuota = calculatedPaymentAmount ?? 0.0;
+    
+    // Si la cuota es mayor al saldo, cobrar solo el saldo restante
+    final amountDue = cuota > remainingBalance ? remainingBalance : cuota;
+    
+    // ✅ NUEVO: Asegurar que no sea negativo
+    return amountDue.clamp(0.0, double.infinity);
+  }
+
+  // ✅ NUEVO: Método para verificar si tiene pagos atrasados
+  bool get hasOverduePayments {
+    if (isFullyPaid) return false;
+    
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    
+    // Verificar si dueDate ya pasó y todavía tiene saldo
+    if (dueDate != null) {
+      final normalizedDueDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
+      if (normalizedDueDate.isBefore(normalizedToday) && remainingBalance > 0.01) {
+        return true;
+      }
+    }
+    
+    // Verificar paymentDates que ya pasaron
+    for (final paymentDate in paymentDates) {
+      final normalizedPaymentDate = DateTime(paymentDate.year, paymentDate.month, paymentDate.day);
+      if (normalizedPaymentDate.isBefore(normalizedToday)) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  // ✅ NUEVO: Método para obtener el próximo pago
+  DateTime? get nextPaymentDate {
+    if (isFullyPaid) return null;
+    
+    final today = DateTime.now();
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    
+    // Buscar la próxima fecha de pago en paymentDates
+    DateTime? nextDate;
+    for (final paymentDate in paymentDates) {
+      final normalizedPaymentDate = DateTime(paymentDate.year, paymentDate.month, paymentDate.day);
+      if (normalizedPaymentDate.isAfter(normalizedToday) || 
+          normalizedPaymentDate.isAtSameMomentAs(normalizedToday)) {
+        if (nextDate == null || normalizedPaymentDate.isBefore(nextDate)) {
+          nextDate = normalizedPaymentDate;
+        }
+      }
+    }
+    
+    return nextDate ?? dueDate;
   }
 
   LoanModel copyWith({
@@ -210,13 +310,31 @@ class LoanModel extends HiveObject {
       calculatedPaymentAmount: calculatedPaymentAmount ?? this.calculatedPaymentAmount,
       totalPaid: totalPaid ?? this.totalPaid,
       remainingBalance: remainingBalance ?? this.remainingBalance,
-      payments: payments ?? this.payments,
-      paymentDates: paymentDates ?? this.paymentDates,
+      payments: payments ?? List<Payment>.from(this.payments),
+      paymentDates: paymentDates ?? List<DateTime>.from(this.paymentDates),
     );
   }
 
   @override
   String toString() {
-    return 'LoanModel(id: $id, clientId: $clientId, clientName: $clientName, amount: $amount, remaining: $remainingBalance, payments: ${payments.length}, paymentDates: ${paymentDates.length})';
+    return 'LoanModel(id: $id, client: $clientName, status: $status, totalPaid: $totalPaid, remaining: $remainingBalance, isFullyPaid: $isFullyPaid, payments: ${payments.length})';
+  }
+
+  // ✅ NUEVO: Método para debug
+  Map<String, dynamic> toDebugMap() {
+    return {
+      'id': id,
+      'clientName': clientName,
+      'status': status,
+      'totalPaid': totalPaid,
+      'remainingBalance': remainingBalance,
+      'isFullyPaid': isFullyPaid,
+      'isActive': isActive,
+      'amountDueToday': getAmountDueToday(),
+      'paymentDatesCount': paymentDates.length,
+      'paymentsCount': payments.length,
+      'hasOverduePayments': hasOverduePayments,
+      'nextPaymentDate': nextPaymentDate?.toString(),
+    };
   }
 }

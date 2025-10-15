@@ -32,9 +32,8 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
   bool _isLoading = false;
   double _expectedPaymentAmount = 0.0;
 
-  // ✅ CORREGIDO: Tolerancia más realista para validación
-  static const double _residualThreshold = 0.50; // Hasta 50 centavos se considera residual pequeño
-  static const double _roundingTolerance = 0.01; // 1 centavo de tolerancia para validación
+  static const double _residualThreshold = 0.50;
+  static const double _roundingTolerance = 0.01;
 
   @override
   void initState() {
@@ -63,18 +62,15 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     _amountController.addListener(_formatAmount);
   }
 
-  // ✅ MEJORADO: Método para calcular el monto esperado con detección inteligente de residuales
   void _updateExpectedAmount() {
     if (_selectedLoan == null) return;
     
     final remaining = _selectedLoan!.remainingBalance;
     final cuota = _selectedLoan!.calculatedPaymentAmount ?? 0.0;
     
-    // ✅ Si el saldo restante es muy pequeño (residual), sugerir pagar el saldo completo
     if (remaining <= _residualThreshold) {
       _expectedPaymentAmount = remaining;
     } else if (remaining < cuota) {
-      // ✅ Si el saldo restante es menor que la cuota, sugerir el saldo completo
       _expectedPaymentAmount = remaining;
     } else {
       _expectedPaymentAmount = cuota;
@@ -83,36 +79,26 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     _amountController.text = _formatCurrency(_expectedPaymentAmount);
   }
 
-  // ✅ CORREGIDO: Método auxiliar para parsear montos con formato colombiano
   double _parseAmount(String amountText) {
     if (amountText.isEmpty) return 0.0;
     
-    // ✅ CORREGIDO: Manejar formato colombiano (punto para miles, coma para decimales)
     String cleanAmountText = amountText.trim();
     
-    // Si tiene coma decimal, convertir a formato estándar
     if (cleanAmountText.contains(',')) {
-      // Separar por la coma decimal
       final parts = cleanAmountText.split(',');
       if (parts.length == 2) {
-        // Remover puntos de miles de la parte entera
         final integerPart = parts[0].replaceAll('.', '');
         final decimalPart = parts[1];
         cleanAmountText = '$integerPart.$decimalPart';
       }
     } else {
-      // Si no tiene coma, solo remover puntos de miles
       cleanAmountText = cleanAmountText.replaceAll('.', '');
     }
     
-    // Parsear el número
     final parsed = double.tryParse(cleanAmountText);
-    
-    
     return parsed ?? 0.0;
   }
 
-  // ✅ CORREGIDO: Formateador de moneda simple sin separadores de miles
   String _formatCurrency(double value) {
     return NumberFormat('#,##0.00', 'es_CO').format(value);
   }
@@ -121,19 +107,14 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     final text = _amountController.text;
     if (text.isEmpty) return;
     
-    // ✅ CORREGIDO: Manejar formato colombiano (punto para miles, coma para decimales)
-    // Remover todo excepto dígitos, puntos y comas
     final cleanText = text.replaceAll(RegExp(r'[^\d.,]'), '');
     
-    // Si tiene coma decimal, manejar formato colombiano
     if (cleanText.contains(',')) {
       final parts = cleanText.split(',');
       if (parts.length == 2) {
-        // Formatear parte entera con puntos de miles
         final integerPart = int.tryParse(parts[0].replaceAll('.', '')) ?? 0;
         final decimalPart = parts[1];
         
-        // Limitar a 2 decimales
         final limitedDecimal = decimalPart.length > 2 ? decimalPart.substring(0, 2) : decimalPart;
         
         final formatter = NumberFormat('#,##0', 'es_CO');
@@ -148,7 +129,6 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
         }
       }
     } else {
-      // Si no tiene coma, formatear como entero con puntos de miles
       final valueInt = int.tryParse(cleanText.replaceAll('.', '')) ?? 0;
       final formatter = NumberFormat('#,##0', 'es_CO');
       final formattedText = formatter.format(valueInt);
@@ -212,26 +192,7 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     }
   }
 
-  // ✅ MEJORADO: Manejo inteligente de montos de pago con detección avanzada de residuales
-  double _calculatePaymentAmount(double inputAmount, double remainingBalance) {
-    // ✅ Si el pago deja un residual muy pequeño, pagar el saldo completo
-    final residualAfterPayment = remainingBalance - inputAmount;
-    
-    // ✅ Detectar residuales pequeños comunes (hasta 50 centavos)
-    if (residualAfterPayment > 0 && residualAfterPayment <= _residualThreshold) {
-      return remainingBalance; // Pagar el saldo completo
-    }
-    
-    // ✅ Detectar casos donde el pago es muy cercano al saldo restante
-    final paymentRatio = inputAmount / remainingBalance;
-    if (paymentRatio >= 0.95 && residualAfterPayment <= 1.0) {
-      return remainingBalance; // Pagar el saldo completo si es muy cercano
-    }
-    
-    return inputAmount;
-  }
-
-  // ✅ MEJORADO: Save Payment con manejo robusto de residuales
+  // ✅ CORREGIDO: Save Payment adaptado a tu entidad Payment
   Future<void> _savePayment() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedLoan == null) {
@@ -250,138 +211,90 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // ✅ CORREGIDO: Parseo robusto que maneja separadores de miles y decimales
+      // ✅ OBTENER PRÉSTAMO ACTUALIZADO DE LA BASE DE DATOS
+      final currentLoan = await _loanRepository.getLoanById(_selectedLoan!.id);
+      if (currentLoan == null) {
+        throw Exception('No se pudo encontrar el préstamo en la base de datos');
+      }
+
+      if (currentLoan.isFullyPaid) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Este préstamo ya está completamente pagado')),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+
       final amountText = _amountController.text;
       
-      // Validar formato de número
       if (amountText.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Por favor ingresa un monto válido')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Por favor ingresa un monto válido')),
+        );
         setState(() => _isLoading = false);
         return;
       }
       
-      // Parsear el número usando el método auxiliar
       final inputAmount = _parseAmount(amountText);
-      
 
-      // ✅ MEJORADO: Validación más clara y útil
       if (inputAmount <= 0) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('El monto debe ser mayor a cero')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El monto debe ser mayor a cero')),
+        );
         setState(() => _isLoading = false);
         return;
       }
 
-      final remainingBalance = _selectedLoan!.remainingBalance;
+      final remainingBalance = currentLoan.remainingBalance;
       
-      // ✅ Aplicar lógica inteligente de residuales
-      final finalPaymentAmount = _calculatePaymentAmount(inputAmount, remainingBalance);
-
-      // ✅ MEJORADO: Validación con tolerancia
-      if (finalPaymentAmount > remainingBalance + _roundingTolerance) {
+      if (inputAmount > remainingBalance + _roundingTolerance) {
         final formattedRemaining = _formatCurrency(remainingBalance);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('El monto no puede ser mayor al saldo pendiente: \$$formattedRemaining')),
-          );
-        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('El monto no puede ser mayor al saldo pendiente: \$$formattedRemaining')),
+        );
         setState(() => _isLoading = false);
         return;
       }
 
-      final loanIdToUse = _selectedLoan!.id;
-
-      // ✅ CREAR Y REGISTRAR EL PAGO PRINCIPAL
+      // ✅ CREAR EL PAGO CON TU ESTRUCTURA ACTUAL (sin note ni createdAt)
       final newPayment = Payment(
         id: const Uuid().v4(),
-        loanId: loanIdToUse,
-        amount: finalPaymentAmount,
+        loanId: currentLoan.id,
+        amount: inputAmount,
         date: _selectedDate,
       );
 
-      // ✅ Registrar pago en el modelo (esto actualiza remainingBalance automáticamente)
-      _selectedLoan!.registerPayment(newPayment);
+      debugPrint('💰 Registrando pago de ${inputAmount} para préstamo ${currentLoan.id}');
 
-      // ✅ VERIFICAR SI QUEDÓ ALGÚN RESIDUAL DESPUÉS DEL PAGO
-      final newRemaining = _selectedLoan!.remainingBalance;
+      // ✅ REGISTRAR PAGO EN EL MODELO
+      currentLoan.registerPayment(newPayment);
       
-      // ✅ Si queda un residual pequeño después del pago, crear pago adicional automático
-      if (newRemaining > 0 && newRemaining <= _residualThreshold) {
-        debugPrint('🔧 Ajustando residual de \$$newRemaining');
-        
-        final residualPayment = Payment(
-          id: const Uuid().v4(),
-          loanId: loanIdToUse,
-          amount: newRemaining,
-          date: _selectedDate,
-        );
-        
-        // ✅ Registrar el pago residual (esto dejará el remainingBalance en 0.0)
-        _selectedLoan!.registerPayment(residualPayment);
-        await _paymentRepository.addPayment(residualPayment);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Pago registrado. Se ajustó residual de \$${_formatCurrency(newRemaining)}'),
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
-      } else if (newRemaining > _residualThreshold && newRemaining <= 1.0) {
-        // ✅ Caso especial: residuales entre 50 centavos y 1 peso
-        debugPrint('🔧 Residual moderado detectado: \$$newRemaining');
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Préstamo casi pagado. Saldo restante: \$${_formatCurrency(newRemaining)}'),
-              duration: const Duration(seconds: 4),
-              action: SnackBarAction(
-                label: 'Pagar saldo',
-                onPressed: () {
-                  // ✅ Opción para pagar el saldo restante inmediatamente
-                  _amountController.text = _formatCurrency(newRemaining);
-                  _savePayment();
-                },
-              ),
-            ),
-          );
-        }
-      }
+      debugPrint('✅ Pago registrado. Nuevo estado: ${currentLoan.toDebugMap()}');
 
-      // ✅ PERSISTIR LOS CAMBIOS
+      // ✅ GUARDAR EN LOS REPOSITORIOS
       await _paymentRepository.addPayment(newPayment);
-      await _loanRepository.updateLoan(_selectedLoan!);
+      await _loanRepository.updateLoan(currentLoan);
 
-      // ✅ VERIFICACIÓN FINAL
-      final persisted = await _loanRepositoryGetter(_selectedLoan!.id);
-      debugPrint(
-          '>>> Pago completado. loanId=${persisted?.id} '
-          'remaining=${persisted?.remainingBalance} '
-          'isFullyPaid=${persisted?.isFullyPaid} '
-          'status=${persisted?.status}');
+      // ✅ VERIFICAR QUE SE GUARDÓ CORRECTAMENTE
+      final verifiedLoan = await _loanRepository.getLoanById(currentLoan.id);
+      debugPrint('🔍 Verificación post-pago: ${verifiedLoan?.toDebugMap()}');
 
       if (!mounted) return;
       
-      // ✅ MOSTRAR CONFIRMACIÓN
+      // ✅ MOSTRAR CONFIRMACIÓN Y RETORNAR ÉXITO
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Pago registrado exitosamente'),
+          content: Text('✅ Pago registrado exitosamente'),
           backgroundColor: Colors.green,
+          duration: Duration(seconds: 2),
         ),
       );
 
-      // ✅ Devolver true para indicar éxito y recargar la pantalla anterior
+      // ✅ RETORNAR true PARA QUE TodayCollectionScreen ACTUALICE LA LISTA
       Navigator.pop(context, true);
+
     } catch (e) {
+      debugPrint('❌ ERROR en _savePayment: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -395,26 +308,15 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
     }
   }
 
-  Future<LoanModel?> _loanRepositoryGetter(String? id) async {
-    if (id == null || id.isEmpty) return null;
-    try {
-      return await _loanRepository.getLoanById(id);
-    } catch (_) {
-      return null;
-    }
-  }
-
   String _formatLoanDisplayText(LoanModel loan) {
     final idSafe = loan.id;
     final shortId = idSafe.length > 4 ? idSafe.substring(0, 4) : idSafe;
     final cuota = NumberFormat.currency(locale: 'es_CO', symbol: r'$', decimalDigits: 0)
         .format((loan.calculatedPaymentAmount ?? 0).round());
     
-    // ✅ MOSTRAR SALDO CON 2 DECIMALES PARA VISUALIZAR RESIDUALES
     final saldo = NumberFormat.currency(locale: 'es_CO', symbol: r'$', decimalDigits: 2)
         .format(loan.remainingBalance);
     
-    // ✅ INDICADORES MEJORADOS DE RESIDUALES
     String residualWarning = '';
     String statusIndicator = '';
     
@@ -434,7 +336,6 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     return Scaffold(
       appBar: AppBar(title: const Text('Registrar Pago')),
       body: _isLoading
@@ -499,7 +400,6 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                       ),
                       const SizedBox(height: 16),
                     ] else if (_selectedLoan != null) ...[
-                      // ✅ INDICADORES VISUALES MEJORADOS DE RESIDUALES
                       Builder(
                         builder: (context) {
                           final remaining = _selectedLoan!.remainingBalance;
@@ -620,7 +520,6 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                             : 'Monto del Pago',
                         border: const OutlineInputBorder(),
                         prefixText: '\$',
-                        // ✅ MEJORADO: Hint text inteligente para residuales
                         hintText: _selectedLoan != null 
                             ? _selectedLoan!.remainingBalance <= _residualThreshold
                                 ? 'Se pagará el saldo completo'
@@ -635,7 +534,6 @@ class _PaymentFormScreenState extends State<PaymentFormScreen> {
                           return 'Por favor, ingresa el monto.';
                         }
                         
-                        // ✅ CORREGIDO: Usar el método auxiliar para parseo consistente
                         final amount = _parseAmount(value);
                         if (amount <= 0) {
                           return 'El monto debe ser mayor a cero.';

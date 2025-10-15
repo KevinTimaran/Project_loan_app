@@ -237,7 +237,7 @@ class CreatorInfoScreen extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Versión 1.0.0',
+              'Versión 1.0.2',
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
@@ -414,23 +414,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       setState(() {
         _isLoadingClients = false;
       });
-    }
-  }
-
-  Future<void> _clearAllHiveBoxes() async {
-    try {
-      await Hive.deleteBoxFromDisk('clients');
-      await Hive.deleteBoxFromDisk('loans');
-      
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bases de datos de clientes y préstamos borradas correctamente.')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error al borrar las bases de datos: $e')),
-      );
     }
   }
 
@@ -664,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                             _buildFeatureCard(
                               context,
                               icon: Icons.calculate,
-                              title: 'Simulador',
+                              title: 'Calculadora',
                               onTap: () {
                                 _closeKeyboard();
                                 Navigator.of(context).push(
@@ -699,17 +682,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               },
                               iconColor: kPurpleModule,
                             ),
-                            // ✅ AÑADIDO: Borrar Bases de Datos
-                            _buildFeatureCard(
-                              context,
-                              icon: Icons.delete_forever,
-                              title: 'Borrar Bases de Datos',
-                              onTap: () {
-                                _closeKeyboard();
-                                _clearAllHiveBoxes();
-                              },
-                              iconColor: kAlertRed,
-                            ),
+                            // ❌ ELIMINADO: Tarjeta "Borrar Bases de Datos" fue removida
                           ],
                         ),
                       ),

@@ -1,9 +1,5 @@
 // lib/presentation/screens/loans/simulator_screen.dart
-// Simulador que reutiliza la lógica de LoanFormScreen para generar el calendario de pagos.
-// - Formateo de monto con separador de miles (es_CO).
-// - Permite elegir fecha de inicio del crédito (desde cuándo empiezan los cobros).
-// - Resumen profesional con fecha de inicio/fin, totales y conteo de cuotas.
-
+// Simulador con Sistema Francés (cuota fija)
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -31,16 +27,17 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
   List<Map<String, dynamic>> _schedule = [];
   double _totalInterest = 0.0;
   double _totalPaid = 0.0;
+  double _fixedPayment = 0.0;
 
   // Formatters
-  final NumberFormat _currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
+  final NumberFormat _currency =
+      NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 2);
   final NumberFormat _decimalPattern = NumberFormat.decimalPattern('es_CO');
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy');
 
   @override
   void initState() {
     super.initState();
-    // Listener para formatear el monto con separadores de miles automáticamente
     _amountCtrl.addListener(_formatAmountWithThousandsSeparator);
   }
 
@@ -54,24 +51,19 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
   }
 
   // Formatea el texto del monto para mostrar separador de miles (es_CO).
-  // Nota: este formateo deja el valor como entero (pesos). Si quieres permitir centavos, habría que
-  // adaptar el parsing y el formateador para conservar parte decimal.
   void _formatAmountWithThousandsSeparator() {
     final text = _amountCtrl.text;
     if (text.isEmpty) return;
 
-    // Dejar sólo dígitos (el usuario puede pegar texto)
     final digitsOnly = text.replaceAll(RegExp(r'[^0-9]'), '');
     if (digitsOnly.isEmpty) {
       _amountCtrl.value = TextEditingValue(text: '', selection: TextSelection.collapsed(offset: 0));
       return;
     }
 
-    // Parsear a int y formatear
     final value = int.tryParse(digitsOnly) ?? 0;
     final formatted = _decimalPattern.format(value);
 
-    // Evitar loops infinitos si ya está formateado
     if (formatted != text) {
       _amountCtrl.value = TextEditingValue(
         text: formatted,
@@ -80,7 +72,6 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     }
   }
 
-  // Periodos por año según frecuencia
   int _periodsPerYear(String freq) {
     switch (freq) {
       case 'Diario':
@@ -95,83 +86,132 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     }
   }
 
-  // Añadir meses evitando overflow en días (ej. 31 de ene + 1 mes -> 28/29 feb)
-  DateTime addMonthsSafe(DateTime date, int monthsToAdd) {
-    int year = date.year;
-    int month = date.month + monthsToAdd;
-    year += (month - 1) ~/ 12;
-    month = ((month - 1) % 12) + 1;
-    int day = date.day;
-    int lastDayOfMonth = DateTime(year, month + 1, 0).day;
-    if (day > lastDayOfMonth) day = lastDayOfMonth;
-    return DateTime(year, month, day);
-  }
-
-  /// Igual lógica de LoanFormScreen: construcción de cronograma con interés simple
-  List<Map<String, dynamic>> buildSimpleInterestSchedule({
-    required double principal,
+  /// SISTEMA FRANCÉS - Cuota fija
+  /// Fórmula: Cuota = P * i * (1+i)^n / ((1+i)^n - 1)
+  Map<String, dynamic> _generateFrenchSystemSchedule({
+    required double amount,
     required double annualRatePercent,
-    required int numberOfPayments,
-    required String frequency,
+    required int term,
     required DateTime startDate,
+    required String frequency,
   }) {
-    int periodsPerYear = _periodsPerYear(frequency);
-    final double annualRate = annualRatePercent / 100.0;
-    final double timeInYears = numberOfPayments / periodsPerYear;
-
-    final int principalCents = (principal * 100).round();
-    final int totalInterestCents = (principalCents * annualRate * timeInYears).round();
-
-    final int principalPerPaymentCents = principalCents ~/ numberOfPayments;
-    final int interestPerPaymentCents = totalInterestCents ~/ numberOfPayments;
-    final int principalRemainder = principalCents - (principalPerPaymentCents * numberOfPayments);
-    final int interestRemainder = totalInterestCents - (interestPerPaymentCents * numberOfPayments);
-
-    DateTime current = startDate;
-    int remainingCents = principalCents;
-    List<Map<String, dynamic>> schedule = [];
-
-    for (int i = 0; i < numberOfPayments; i++) {
-      if (frequency == 'Diario') {
-        current = current.add(const Duration(days: 1));
-      } else if (frequency == 'Semanal') {
-        current = current.add(const Duration(days: 7));
-      } else if (frequency == 'Quincenal') {
-        current = current.add(const Duration(days: 15));
-      } else {
-        current = addMonthsSafe(current, 1);
-      }
-
-      int principalPortionCents = principalPerPaymentCents;
-      int interestPortionCents = interestPerPaymentCents;
-
-      if (i == numberOfPayments - 1) {
-        // Añadir residuos al último pago para cuadrar
-        principalPortionCents += principalRemainder;
-        interestPortionCents += interestRemainder;
-      }
-
-      final int paymentCents = principalPortionCents + interestPortionCents;
-      remainingCents = max(0, remainingCents - principalPortionCents);
-
-      schedule.add({
-        'index': i + 1,
-        'date': current,
-        'paymentCents': paymentCents,
-        'payment': paymentCents / 100.0,
-        'interest': interestPortionCents / 100.0,
-        'principal': principalPortionCents / 100.0,
-        'remaining': remainingCents / 100.0,
-      });
+    final List<DateTime> dates = [];
+    final List<double> installments = [];
+    final List<double> interests = [];
+    final List<double> principals = [];
+    final List<double> remainings = [];
+    
+    if (term <= 0) {
+      return {
+        'dates': dates, 
+        'installments': installments, 
+        'interests': interests,
+        'principals': principals,
+        'remainings': remainings,
+        'total': 0.0,
+        'fixedPayment': 0.0
+      };
     }
 
-    return schedule;
+    // Calcular tasa periódica según frecuencia
+    double periodRate;
+    Duration periodDuration;
+
+    switch (frequency.toLowerCase()) {
+      case 'diario':
+        periodRate = (annualRatePercent / 100) / 365;
+        periodDuration = const Duration(days: 1);
+        break;
+      case 'semanal':
+        periodRate = (annualRatePercent / 100) / 52;
+        periodDuration = const Duration(days: 7);
+        break;
+      case 'quincenal':
+        periodRate = (annualRatePercent / 100) / 24;
+        periodDuration = const Duration(days: 15);
+        break;
+      case 'mensual':
+      default:
+        periodRate = (annualRatePercent / 100) / 12;
+        periodDuration = const Duration(days: 30);
+        break;
+    }
+
+    // Calcular cuota fija usando la fórmula del sistema francés
+    final double numerator = periodRate * pow(1 + periodRate, term);
+    final double denominator = pow(1 + periodRate, term) - 1;
+    final double fixedPayment = amount * (numerator / denominator);
+
+    // Trabajar en centavos para precisión
+    int remainingCents = (amount * 100).round();
+    final int fixedPaymentCents = (fixedPayment * 100).round();
+    int totalPaidCents = 0;
+
+    for (int i = 0; i < term; i++) {
+      // Calcular fecha
+      DateTime date;
+      if (frequency.toLowerCase() == 'mensual') {
+        // Respetar días reales del mes
+        int year = startDate.year;
+        int month = startDate.month + i;
+        year += (month - 1) ~/ 12;
+        month = ((month - 1) % 12) + 1;
+        int day = startDate.day;
+        final int lastDay = DateTime(year, month + 1, 0).day;
+        if (day > lastDay) day = lastDay;
+        date = DateTime(year, month, day);
+      } else {
+        date = startDate.add(periodDuration * i);
+      }
+      final normalizedDate = DateTime(date.year, date.month, date.day);
+      dates.add(normalizedDate);
+
+      // Calcular interés del período sobre saldo actual
+      final double interestRaw = remainingCents * periodRate;
+      final int interestCents = interestRaw.round();
+
+      // Calcular abono a capital
+      int principalCents = fixedPaymentCents - interestCents;
+      
+      // Ajustar última cuota para que no quede saldo negativo
+      if (i == term - 1) {
+        principalCents = remainingCents;
+      }
+
+      // Asegurar que no exceda el saldo restante
+      principalCents = principalCents.clamp(0, remainingCents);
+      
+      final int paymentCents = principalCents + interestCents;
+
+      // Actualizar saldo
+      remainingCents -= principalCents;
+      if (remainingCents < 0) remainingCents = 0;
+
+      totalPaidCents += paymentCents;
+
+      // Guardar valores (convertir a pesos)
+      installments.add(paymentCents / 100.0);
+      interests.add(interestCents / 100.0);
+      principals.add(principalCents / 100.0);
+      remainings.add(remainingCents / 100.0);
+    }
+
+    final double totalToPay = totalPaidCents / 100.0;
+    return {
+      'dates': dates,
+      'installments': installments,
+      'interests': interests,
+      'principals': principals,
+      'remainings': remainings,
+      'total': totalToPay,
+      'fixedPayment': fixedPayment
+    };
   }
 
   void _simulate() {
     if (!_formKey.currentState!.validate()) return;
 
-    // Parsear monto como entero (pesos)
+    // Parsear monto: extraer dígitos y construir double de pesos
     final amountDigits = _amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
     final principal = double.tryParse(amountDigits) ?? 0.0;
 
@@ -180,21 +220,41 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
 
     if (principal <= 0 || term <= 0) return;
 
-    final schedule = buildSimpleInterestSchedule(
-      principal: principal,
+    final res = _generateFrenchSystemSchedule(
+      amount: principal,
       annualRatePercent: rate,
-      numberOfPayments: term,
+      term: term,
+      startDate: DateTime(_startDate.year, _startDate.month, _startDate.day),
       frequency: _frequency,
-      startDate: _startDate,
     );
 
-    final totalInterest = schedule.fold<double>(0.0, (s, e) => s + (e['interest'] as double));
-    final totalPaid = schedule.fold<double>(0.0, (s, e) => s + (e['payment'] as double));
+    final List<DateTime> dates = (res['dates'] as List<DateTime>);
+    final List<double> installments = (res['installments'] as List<double>);
+    final List<double> interests = (res['interests'] as List<double>);
+    final List<double> principals = (res['principals'] as List<double>);
+    final List<double> remainings = (res['remainings'] as List<double>);
+    final double totalToPay = (res['total'] as double);
+    final double fixedPayment = (res['fixedPayment'] as double);
 
+    // Construir estructura de schedule
+    final List<Map<String, dynamic>> schedule = [];
+    for (int i = 0; i < installments.length; i++) {
+      schedule.add({
+        'index': i + 1,
+        'date': dates[i],
+        'payment': installments[i],
+        'interest': interests[i],
+        'principal': principals[i],
+        'remaining': remainings[i],
+      });
+    }
+
+    final totalInterest = totalToPay - principal;
     setState(() {
       _schedule = schedule;
       _totalInterest = totalInterest;
-      _totalPaid = totalPaid;
+      _totalPaid = totalToPay;
+      _fixedPayment = fixedPayment;
     });
   }
 
@@ -208,18 +268,18 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
       _schedule = [];
       _totalInterest = 0.0;
       _totalPaid = 0.0;
+      _fixedPayment = 0.0;
     });
   }
 
-  // Resumen profesional con toda la info solicitada
   Widget _summaryCard() {
     if (_schedule.isEmpty) return const SizedBox.shrink();
 
     final firstPaymentDate = _schedule.first['date'] as DateTime;
     final lastPaymentDate = _schedule.last['date'] as DateTime;
-    final firstPayment = _schedule.first['payment'] as double;
-    final lastPayment = _schedule.last['payment'] as double;
-    final avgPayment = _schedule.fold<double>(0.0, (s, e) => s + (e['payment'] as double)) / _schedule.length;
+
+    final amountDigits = _amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final principal = double.tryParse(amountDigits) ?? 0.0;
 
     return Card(
       elevation: 4,
@@ -230,32 +290,30 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Resumen', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+            Text('Resumen - Sistema Francés', 
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[700]
+                )),
             const SizedBox(height: 12),
-
-            // Row principal con métricas
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                _summaryMetric('Principal', _currency.format((_amountCtrl.text.isEmpty ? 0 : double.tryParse(_amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0))),
+                _summaryMetric('Principal', _currency.format(principal)),
                 _summaryMetric('Intereses', _currency.format(_totalInterest)),
                 _summaryMetric('Total a pagar', _currency.format(_totalPaid)),
               ],
             ),
             const SizedBox(height: 12),
-
-            // Segunda fila
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _summaryMetric('Cuotas', '${_schedule.length}'),
-                _summaryMetric('Cuota (1ª)', _currency.format(firstPayment)),
-                _summaryMetric('Cuota (prom.)', _currency.format(avgPayment)),
+                _summaryMetric('Cuota Fija', _currency.format(_fixedPayment)),
+                _summaryMetric('TEA', '${_rateCtrl.text}%'),
               ],
             ),
             const SizedBox(height: 12),
-
-            // Fechas y frecuencia
             Row(
               children: [
                 Expanded(
@@ -281,7 +339,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
               children: [
                 Expanded(child: _summarySmall('Frecuencia', _frequency)),
                 Expanded(child: _summarySmall('Periodos/año', '${_periodsPerYear(_frequency)}')),
-                Expanded(child: _summarySmall('Tasa anual', '${_rateCtrl.text.isEmpty ? ' - ' : _rateCtrl.text + ' %'}')),
+                Expanded(child: _summarySmall('Sistema', 'Francés')),
               ],
             ),
           ],
@@ -312,43 +370,89 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     );
   }
 
-  // Lista de amortización
   Widget _scheduleList() {
     if (_schedule.isEmpty) {
-      return Center(child: Text('Sin simulación. Completa los datos y presiona "Calcular".', style: TextStyle(color: Colors.grey[700])));
+      return Center(
+        child: Text(
+          'Sin simulación. Completa los datos y presiona "Calcular".', 
+          style: TextStyle(color: Colors.grey[700])
+        ),
+      );
     }
 
-    return ListView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: _schedule.length,
-      itemBuilder: (context, index) {
-        final e = _schedule[index];
-        return Card(
-          margin: const EdgeInsets.symmetric(vertical: 6),
-          child: ListTile(
-            leading: CircleAvatar(child: Text('${e['index']}')),
-            title: Text('${_currency.format(e['payment'])}  •  ${_dateFormat.format(e['date'])}'),
-            subtitle: Text('Capital: ${_currency.format(e['principal'])} • Interés: ${_currency.format(e['interest'])}'),
-            trailing: Text('Saldo: ${_currency.format(e['remaining'])}', style: const TextStyle(fontWeight: FontWeight.bold)),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8.0),
+          child: Text(
+            'Tabla de Amortización (${_schedule.length} cuotas)',
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
-        );
-      },
+        ),
+        ListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _schedule.length,
+          itemBuilder: (context, index) {
+            final e = _schedule[index];
+            final payment = e['payment'] as double;
+            final date = e['date'] as DateTime;
+            final remaining = e['remaining'] as double;
+            final principal = e['principal'] as double;
+            final interest = e['interest'] as double;
+            
+            return Card(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue[50],
+                  child: Text('${e['index']}', style: const TextStyle(color: Colors.blue)),
+                ),
+                title: Text(
+                  '${_currency.format(payment)} • ${_dateFormat.format(date)}',
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                ),
+                subtitle: Text(
+                  'Capital: ${_currency.format(principal)} • Interés: ${_currency.format(interest)}',
+                ),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _currency.format(remaining),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: remaining == 0 ? Colors.green : Colors.grey[700],
+                        fontSize: 12
+                      ),
+                    ),
+                    if (remaining == 0) 
+                      Text('Saldo cero', style: TextStyle(color: Colors.green, fontSize: 10)),
+                  ],
+                ),
+              ),
+            );
+          },
+    ),
+      ],
     );
   }
 
-  // UI principal
   @override
   Widget build(BuildContext context) {
     final InputDecoration numberField = const InputDecoration(border: OutlineInputBorder());
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Simulador de Pagos')),
+      appBar: AppBar(
+        title: const Text('Simulador - Sistema Francés'),
+        backgroundColor: Colors.blue[700],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // Formulario
             Card(
               elevation: 2,
               child: Padding(
@@ -357,11 +461,13 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                   key: _formKey,
                   child: Column(
                     children: [
-                      // Monto con formateo automático
                       TextFormField(
                         controller: _amountCtrl,
                         keyboardType: TextInputType.number,
-                        decoration: numberField.copyWith(labelText: 'Monto (principal)'),
+                        decoration: numberField.copyWith(
+                          labelText: 'Monto del préstamo',
+                          hintText: 'Ej: 1.000.000'
+                        ),
                         validator: (v) {
                           final digits = v?.replaceAll(RegExp(r'[^0-9]'), '') ?? '';
                           final val = double.tryParse(digits) ?? 0;
@@ -370,12 +476,13 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                         },
                       ),
                       const SizedBox(height: 12),
-
-                      // Tasa anual
                       TextFormField(
                         controller: _rateCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        decoration: numberField.copyWith(labelText: 'Tasa anual (%)'),
+                        decoration: numberField.copyWith(
+                          labelText: 'Tasa de interés anual (%)',
+                          hintText: 'Ej: 25.0'
+                        ),
                         validator: (v) {
                           final val = double.tryParse((v ?? '').replaceAll(',', '.'));
                           if (val == null || val < 0) return 'Ingresa una tasa válida';
@@ -383,15 +490,16 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                         },
                       ),
                       const SizedBox(height: 12),
-
-                      // Plazo y frecuencia
                       Row(
                         children: [
                           Expanded(
                             child: TextFormField(
                               controller: _termCtrl,
                               keyboardType: TextInputType.number,
-                              decoration: numberField.copyWith(labelText: 'Número de cuotas'),
+                              decoration: numberField.copyWith(
+                                labelText: 'Número de cuotas',
+                                hintText: 'Ej: 12'
+                              ),
                               validator: (v) {
                                 final val = int.tryParse(v ?? '');
                                 if (val == null || val <= 0) return 'Plazo inválido';
@@ -411,8 +519,6 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-
-                      // Fecha de inicio para comenzar los cobros
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.calendar_today),
@@ -432,13 +538,27 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                           },
                         ),
                       ),
-
                       const SizedBox(height: 12),
                       Row(
                         children: [
-                          Expanded(child: ElevatedButton.icon(icon: const Icon(Icons.calculate), label: const Text('Calcular'), onPressed: _simulate)),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.calculate), 
+                              label: const Text('Calcular'), 
+                              onPressed: _simulate,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blue[700],
+                                foregroundColor: Colors.white,
+                              ),
+                            ),
+                          ),
                           const SizedBox(width: 12),
-                          Expanded(child: OutlinedButton(child: const Text('Limpiar'), onPressed: _reset)),
+                          Expanded(
+                            child: OutlinedButton(
+                              child: const Text('Limpiar'), 
+                              onPressed: _reset
+                            ),
+                          ),
                         ],
                       ),
                     ],
@@ -446,15 +566,9 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                 ),
               ),
             ),
-
-            // Resumen completo
             _summaryCard(),
-
             const SizedBox(height: 8),
-
-            // Tabla de amortización
             _scheduleList(),
-
             const SizedBox(height: 24),
           ],
         ),
@@ -462,4 +576,3 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     );
   }
 }
-
