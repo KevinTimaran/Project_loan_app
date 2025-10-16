@@ -25,6 +25,8 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   final DeleteClient _deleteClient = DeleteClient(ClientRepository());
   final CheckClientActiveLoans _checkClientActiveLoans =
       CheckClientActiveLoans(ClientRepository());
+  bool _isLoading = false;
+  String? _error;
 
   @override
   void initState() {
@@ -33,10 +35,44 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   }
 
   Future<void> _loadClientDetails() async {
-    final allClients = await _getClients.call();
     setState(() {
-      _client = allClients.firstWhere((c) => c.id == widget.clientId);
+      _isLoading = true;
+      _error = null;
     });
+    try {
+      final allClients = await _getClients.call();
+      final client = allClients.firstWhere(
+        (c) => c.id == widget.clientId,
+        orElse: () => Client(
+          id: '',
+          name: '',
+          lastName: '',
+          identification: '',
+          phone: '',
+          whatsapp: '',
+          address: '',
+          notes: '',
+        ),
+      );
+      if (client.id.isEmpty) {
+        setState(() {
+          _client = null;
+          _error = 'Cliente no encontrado o eliminado.';
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _client = client;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _client = null;
+        _error = 'Error al cargar cliente: $e';
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _confirmDeleteClient() async {
@@ -62,11 +98,10 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, false),
             child: const Text('Cancelar'),
-            style: TextButton.styleFrom().copyWith(animationDuration: Duration.zero),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red).copyWith(animationDuration: Duration.zero),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Eliminar'),
           ),
         ],
@@ -76,16 +111,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     if (confirm == true) {
       try {
         await _deleteClient.call(_client!.id);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Cliente eliminado exitosamente')),
-        );
-        // Navegar hacia atrás dos veces: una para salir de ClientHistoryScreen (si se vino desde allí)
-        // y otra para salir de ClientDetailScreen.
-        // O simplemente pop hasta la raíz si se sabe que es la pantalla de detalles.
-        // Para simplificar, simplemente volvemos.
         if (mounted) {
-          Navigator.pop(context); // Sale de ClientDetailScreen
-          // Si necesitas volver más atrás, puedes usar Navigator.popUntil(context, ModalRoute.withName('/ruta_anterior'));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Cliente eliminado exitosamente')),
+          );
+          Navigator.pop(context);
         }
       } catch (e) {
         if (mounted) {
@@ -107,7 +137,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('OK'),
-            style: TextButton.styleFrom().copyWith(animationDuration: Duration.zero),
           ),
         ],
       ),
@@ -115,20 +144,30 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   }
 
   Future<void> _launchUrl(String url) async {
-    if (await canLaunchUrl(Uri.parse(url))) {
-      await launchUrl(Uri.parse(url));
-    } else {
+    try {
+      final uri = Uri.parse(url);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri);
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No se pudo abrir la aplicación.')),
+          );
+        }
+      }
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No se pudo abrir la aplicación.')),
+          SnackBar(content: Text('Error al abrir enlace: $e')),
         );
       }
     }
   }
 
   void _makePhoneCall() {
-    if (_client?.phone != null && _client!.phone.isNotEmpty) {
-      _launchUrl('tel:${_client!.phone}');
+    if (_client?.phone != null && _client!.phone.trim().isNotEmpty) {
+      final cleanedPhone = _client!.phone.replaceAll(RegExp(r'\s+'), '');
+      _launchUrl('tel:$cleanedPhone');
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -139,9 +178,9 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   }
 
   void _sendWhatsAppMessage() {
-    if (_client?.whatsapp != null && _client!.whatsapp.isNotEmpty) {
-      // ✅ URL CORREGIDA: Sin espacios en blanco
-      _launchUrl('https://wa.me/${_client!.whatsapp}'); 
+    if (_client?.whatsapp != null && _client!.whatsapp.trim().isNotEmpty) {
+      final cleanedWhatsapp = _client!.whatsapp.replaceAll(RegExp(r'\s+'), '');
+      _launchUrl('https://wa.me/$cleanedWhatsapp');
     } else {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -151,8 +190,8 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     }
   }
 
-  // ✅ Función para abrir la pantalla de edición
   void _openEditClient() async {
+    if (_client == null) return;
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
@@ -160,25 +199,43 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       ),
     );
     if (result == true && mounted) {
-      _loadClientDetails(); // Recargar datos si se guardaron cambios
+      _loadClientDetails();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_client == null) {
+    if (_isLoading) {
       return Scaffold(
         appBar: AppBar(title: const Text('Detalles del Cliente')),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
 
+    if (_error != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Detalles del Cliente')),
+        body: Center(
+          child: Text(
+            _error!,
+            style: const TextStyle(color: Colors.red, fontSize: 16),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
+
+    if (_client == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Detalles del Cliente')),
+        body: const Center(child: Text('Cliente no encontrado o eliminado.')),
+      );
+    }
+
     return Scaffold(
-      // ✅ AppBar con botón de eliminar
       appBar: AppBar(
         title: Text('${_client!.name} ${_client!.lastName}'),
         actions: [
-          // ✅ Botón de eliminar en la AppBar
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
             onPressed: _confirmDeleteClient,
@@ -191,7 +248,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 🎯 Tarjeta de información del cliente
             Card(
               elevation: 4,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -200,7 +256,6 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ✏️ Botón de editar DENTRO de la tarjeta (mantenido)
                     Align(
                       alignment: Alignment.topRight,
                       child: IconButton(
@@ -211,7 +266,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                     ),
                     _buildInfoRow('Nombre:', '${_client!.name} ${_client!.lastName}'),
                     _buildInfoRow('Identificación:', _client!.identification),
-                    _buildInfoRow('Dirección:', _client!.address ?? 'N/A'),
+                    _buildInfoRow('Dirección:', _client!.address),
                     _buildInfoRow('Teléfono:', _client!.phone),
                     _buildInfoRow('WhatsApp:', _client!.whatsapp),
                     _buildInfoRow('Notas:', _client!.notes),
@@ -219,10 +274,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 20),
-
-            // 💡 Botones de llamada y WhatsApp
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
@@ -232,7 +284,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                   label: const Text('Llamar'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                  ).copyWith(animationDuration: Duration.zero),
+                  ),
                 ),
                 ElevatedButton.icon(
                   onPressed: _sendWhatsAppMessage,
@@ -240,14 +292,11 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                   label: const Text('WhatsApp'),
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                  ).copyWith(animationDuration: Duration.zero),
+                  ),
                 ),
               ],
             ),
-
             const SizedBox(height: 20),
-
-            // ✅ BOTÓN DE HISTORIAL
             ElevatedButton(
               onPressed: () {
                 Navigator.push(
@@ -262,7 +311,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
               child: const Text('Ver Historial de Préstamos del Cliente'),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-              ).copyWith(animationDuration: Duration.zero),
+              ),
             ),
           ],
         ),
@@ -271,8 +320,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   }
 
   Widget _buildInfoRow(String label, String? value) {
-    // Manejar valores nulos o vacíos
-    final displayValue = value != null && value.isNotEmpty ? value : 'N/A';
+    final displayValue = value != null && value.trim().isNotEmpty ? value : 'N/A';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(

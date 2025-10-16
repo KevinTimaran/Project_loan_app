@@ -2,7 +2,7 @@ name: loan_app
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 1.0.0+2
+version: 1.0.0+3
 
 environment:
   sdk: ">=3.2.6 <4.0.0" # Compatible con Dart 3.8+
@@ -24,7 +24,6 @@ dependencies:
   currency_text_input_formatter: ^2.3.0
   font_awesome_flutter: ^10.6.0
   flutter_local_notifications: ^19.4.2
-  # Se mantuvo la versión más reciente que tenías (6.3.0) y se eliminó la duplicada (6.2.6)
   url_launcher: ^6.3.0 
 
 dev_dependencies:
@@ -40,11 +39,14 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/icons/app_icon.png
+
+
+    - assets/icons/ 
 
 flutter_launcher_icons:
   android: true
   ios: false
+
   image_path: "assets/icons/app_icon.png"
   adaptive_icon_background: "#1E88E5"
   adaptive_icon_foreground: "assets/icons/app_icon.png"

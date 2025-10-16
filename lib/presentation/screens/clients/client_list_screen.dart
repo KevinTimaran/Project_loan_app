@@ -22,6 +22,8 @@ class _ClientListScreenState extends State<ClientListScreen> {
   List<Client> _filteredClients = [];
   final GetClients _getClients = GetClients(ClientRepository());
   final SearchClients _searchClients = SearchClients(ClientRepository());
+  bool _isLoading = false;
+  String? _error;
 
   @override
   void initState() {
@@ -43,11 +45,23 @@ class _ClientListScreenState extends State<ClientListScreen> {
   }
 
   Future<void> _loadClients() async {
-    final clients = await _getClients.call();
     setState(() {
-      _clients = clients;
-      _filteredClients = clients;
+      _isLoading = true;
+      _error = null;
     });
+    try {
+      final clients = await _getClients.call();
+      setState(() {
+        _clients = clients;
+        _filteredClients = clients;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        _error = 'Error al cargar clientes: $e';
+      });
+    }
   }
 
   void _onSearchChanged() async {
@@ -56,11 +70,63 @@ class _ClientListScreenState extends State<ClientListScreen> {
         _filteredClients = _clients;
       });
     } else {
-      final searchedClients = await _searchClients.call(_searchController.text);
-      setState(() {
-        _filteredClients = searchedClients;
-      });
+      try {
+        final searchedClients = await _searchClients.call(_searchController.text);
+        setState(() {
+          _filteredClients = searchedClients;
+        });
+      } catch (e) {
+        setState(() {
+          _error = 'Error al buscar clientes: $e';
+        });
+      }
     }
+  }
+
+  Widget _buildClientTile(Client client) {
+    // Manejo de nulos y datos incompletos
+    final String displayName = '${client.name.isNotEmpty ? client.name : 'Sin nombre'} ${client.lastName.isNotEmpty ? client.lastName : ''}'.trim();
+    final String displayId = client.identification.isNotEmpty ? client.identification : 'Sin ID';
+    final bool hasNotes = client.notes.isNotEmpty;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: ListTile(
+        leading: CircleAvatar(
+          child: Text(client.name.isNotEmpty ? client.name[0].toUpperCase() : '?'),
+        ),
+        title: Text(displayName),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('ID: $displayId'),
+            if (hasNotes)
+              Text('Notas: ${client.notes}', maxLines: 1, overflow: TextOverflow.ellipsis),
+          ],
+        ),
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => ClientDetailScreen(clientId: client.id),
+            ),
+          );
+          _loadClients();
+        },
+        trailing: IconButton(
+          icon: const Icon(Icons.history, color: Colors.blueGrey),
+          tooltip: 'Ver historial',
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ClientHistoryScreen(clientId: client.id),
+              ),
+            );
+          },
+        ),
+      ),
+    );
   }
 
   @override
@@ -95,42 +161,34 @@ class _ClientListScreenState extends State<ClientListScreen> {
               ),
             ),
           ),
-          Expanded(
-            child: _filteredClients.isEmpty
-                ? const Center(child: Text('No hay clientes registrados.'))
-                : ListView.builder(
-                    itemCount: _filteredClients.length,
-                    itemBuilder: (context, index) {
-                      final client = _filteredClients[index];
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            child: Text(client.name.isNotEmpty ? client.name[0] : ''),
-                          ),
-                          title: Text('${client.name} ${client.lastName}'),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('ID: ${client.identification}'),
-                              if (client.notes.isNotEmpty)
-                                Text('Notas: ${client.notes}', maxLines: 1, overflow: TextOverflow.ellipsis),
-                            ],
-                          ),
-                          onTap: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => ClientDetailScreen(clientId: client.id),
-                              ),
-                            );
-                            _loadClients();
-                          },
-                        ),
-                      );
-                    },
-                  ),
-          ),
+          if (_isLoading)
+            const Expanded(
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_error != null)
+            Expanded(
+              child: Center(
+                child: Text(
+                  _error!,
+                  style: const TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
+          else if (_filteredClients.isEmpty)
+            const Expanded(
+              child: Center(child: Text('No hay clientes registrados.')),
+            )
+          else
+            Expanded(
+              child: ListView.builder(
+                itemCount: _filteredClients.length,
+                itemBuilder: (context, index) {
+                  final client = _filteredClients[index];
+                  return _buildClientTile(client);
+                },
+              ),
+            ),
         ],
       ),
     );

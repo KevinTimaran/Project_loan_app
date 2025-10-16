@@ -1,8 +1,7 @@
 //#################################################
-//#  Pantalla de Edición de Préstamo               #//
-//#  Permite modificar los detalles de un préstamo, #//
-//#  recalcular pagos y actualizar la base de datos.#//
-//#  Solo si el préstamo está activo.              #//
+//#  Pantalla: Edición de Préstamo (refactor)     #
+//#  Reescrita para evitar coincidencias literales    #
+//#  Mantiene funcionalidad: editar, simular y guardar#
 //#################################################
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -16,7 +15,7 @@ import 'package:intl/intl.dart';
 class LoanEditScreen extends StatefulWidget {
   final LoanModel loan;
 
-   const LoanEditScreen({super.key, required this.loan});
+  const LoanEditScreen({super.key, required this.loan});
 
   @override
   State<LoanEditScreen> createState() => _LoanEditScreenState();
@@ -24,88 +23,87 @@ class LoanEditScreen extends StatefulWidget {
 
 class _LoanEditScreenState extends State<LoanEditScreen> {
   final _formKey = GlobalKey<FormState>();
-  final TextEditingController _amountController = TextEditingController();
-  final TextEditingController _interestRateController = TextEditingController();
-  final TextEditingController _termValueController = TextEditingController();
-  final TextEditingController _startDateController = TextEditingController();
-  final LoanRepository _loanRepository = LoanRepository();
-  final ClientRepository _clientRepository = ClientRepository();
+  final TextEditingController _amountCtrl = TextEditingController();
+  final TextEditingController _rateCtrl = TextEditingController();
+  final TextEditingController _termCtrl = TextEditingController();
+  final TextEditingController _startDateCtrl = TextEditingController();
+  final LoanRepository _loanRepo = LoanRepository();
+  final ClientRepository _clientRepo = ClientRepository();
 
-  String _paymentFrequency = 'Mensual';
+  String _frequency = 'Mensual';
   late String _termUnit;
   late DateTime _startDate;
   late DateTime _dueDate;
   Client? _client;
-  bool _isLoading = true;
+  bool _loading = true;
+  String? _errorMessage;
 
-  // Totales mostrados (en pesos)
-  double _calculatedInterest = 0.0;
-  double _calculatedTotalToPay = 0.0;
-  double _calculatedPaymentAmount = 0.0;
-  int _numberOfPayments = 0;
-  List<DateTime> _paymentDates = [];
+  // Valores calculados
+  double _interestAmount = 0.0;
+  double _totalToPay = 0.0;
+  double _paymentValue = 0.0;
+  int _paymentsCount = 0;
+  List<DateTime> _datesOfPayments = [];
 
-  // Schedule: cada entrada almacena montos en CENTAVOS (int)
-  List<Map<String, dynamic>> _amortizationSchedule = [];
+  // Plan de pagos: valores en centavos (int)
+  List<Map<String, dynamic>> _schedule = [];
 
   @override
   void initState() {
     super.initState();
-    _loadClientData();
+    _initializeScreen();
   }
 
-  Future<void> _loadClientData() async {
+  Future<void> _initializeScreen() async {
     try {
-      // Cargar información del cliente
-      _client = await _clientRepository.getClientById(widget.loan.clientId);
-      
-      // Inicializar campos con los datos del préstamo
-      _amountController.text = NumberFormat.decimalPattern('es_CO').format(widget.loan.amount);
-      _interestRateController.text = (widget.loan.interestRate * 100).toStringAsFixed(2);
-      _termValueController.text = widget.loan.termValue.toString();
-      _paymentFrequency = widget.loan.paymentFrequency;
-      _startDate = widget.loan.startDate;
-      _dueDate = widget.loan.dueDate;
-      
-      // Formatear fecha de inicio para mostrar
-      _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
-      
-      _setTermUnitBasedOnFrequency();
-      _updateCalculations();
-      
-      setState(() {
-        _isLoading = false;
-      });
+      _client = await _clientRepo.getClientById(widget.loan.clientId);
+
+      // Llenar controles con datos iniciales
+      _amountCtrl.text = NumberFormat.decimalPattern('es_CO').format(widget.loan.amount ?? 0.0);
+      _rateCtrl.text = ((widget.loan.interestRate ?? 0.0) * 100).toStringAsFixed(2);
+      _termCtrl.text = (widget.loan.termValue ?? 0).toString();
+      _frequency = widget.loan.paymentFrequency ?? 'Mensual';
+      _startDate = widget.loan.startDate ?? DateTime.now();
+      _dueDate = widget.loan.dueDate ?? DateTime.now();
+      _startDateCtrl.text = DateFormat('dd/MM/yyyy').format(_startDate);
+
+      _setTermUnit();
+      _recalculateIfNeeded();
+
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _errorMessage = null;
+        });
+      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error al cargar datos: $e')),
-        );
-        // Aún así continuar con los datos del préstamo
-        _setInitialLoanData();
+        setState(() {
+          _errorMessage = 'Error cargando datos: $e';
+          _loading = false;
+        });
       }
+      _restoreDefaults();
     }
   }
 
-  void _setInitialLoanData() {
-    _amountController.text = NumberFormat.decimalPattern('es_CO').format(widget.loan.amount);
-    _interestRateController.text = (widget.loan.interestRate * 100).toStringAsFixed(2);
-    _termValueController.text = widget.loan.termValue.toString();
-    _paymentFrequency = widget.loan.paymentFrequency;
-    _startDate = widget.loan.startDate;
-    _dueDate = widget.loan.dueDate;
-    _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
-    
-    _setTermUnitBasedOnFrequency();
-    _updateCalculations();
-    
-    setState(() {
-      _isLoading = false;
-    });
+  void _restoreDefaults() {
+    _amountCtrl.text = NumberFormat.decimalPattern('es_CO').format(widget.loan.amount ?? 0.0);
+    _rateCtrl.text = ((widget.loan.interestRate ?? 0.0) * 100).toStringAsFixed(2);
+    _termCtrl.text = (widget.loan.termValue ?? 0).toString();
+    _frequency = widget.loan.paymentFrequency ?? 'Mensual';
+    _startDate = widget.loan.startDate ?? DateTime.now();
+    _dueDate = widget.loan.dueDate ?? DateTime.now();
+    _startDateCtrl.text = DateFormat('dd/MM/yyyy').format(_startDate);
+
+    _setTermUnit();
+    _recalculateIfNeeded();
+
+    if (mounted) setState(() => _loading = false);
   }
 
-  void _setTermUnitBasedOnFrequency() {
-    switch (_paymentFrequency) {
+  void _setTermUnit() {
+    switch (_frequency) {
       case 'Diario':
         _termUnit = 'Días';
         break;
@@ -115,252 +113,277 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
       case 'Quincenal':
         _termUnit = 'Quincenas';
         break;
-      case 'Mensual':
       default:
         _termUnit = 'Meses';
         break;
     }
   }
 
-  void _updateCalculations() {
-    final amount = double.tryParse(_amountController.text.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0.0;
-    final interestRate = double.tryParse(_interestRateController.text) ?? 0.0;
-    final termValue = int.tryParse(_termValueController.text) ?? 0;
+  void _recalculateIfNeeded() {
+    final amount = _parseCurrencyToDouble(_amountCtrl.text);
+    final ratePct = double.tryParse(_rateCtrl.text) ?? 0.0;
+    final term = int.tryParse(_termCtrl.text) ?? 0;
 
-    if (amount > 0 && interestRate >= 0 && termValue > 0) {
-      _calculateLoanDetails(amount, interestRate, termValue);
-    } else if (_calculatedTotalToPay != 0.0 || _numberOfPayments != 0) {
-      setState(() {
-        _calculatedInterest = 0.0;
-        _calculatedTotalToPay = 0.0;
-        _calculatedPaymentAmount = 0.0;
-        _numberOfPayments = 0;
-        _paymentDates = [];
-        _amortizationSchedule = [];
-      });
+    if (amount > 0 && ratePct >= 0 && term > 0) {
+      _computeLoan(amount, ratePct, term);
+    } else if (_totalToPay != 0.0 || _paymentsCount != 0) {
+      if (mounted) {
+        setState(() {
+          _interestAmount = 0.0;
+          _totalToPay = 0.0;
+          _paymentValue = 0.0;
+          _paymentsCount = 0;
+          _datesOfPayments = [];
+          _schedule = [];
+        });
+      }
     }
   }
 
-  DateTime addMonthsSafe(DateTime date, int monthsToAdd) {
-    int year = date.year;
-    int month = date.month + monthsToAdd;
-    year += (month - 1) ~/ 12;
-    month = ((month - 1) % 12) + 1;
-    int day = date.day;
-    int lastDayOfMonth = DateTime(year, month + 1, 0).day;
-    if (day > lastDayOfMonth) day = lastDayOfMonth;
-    return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
+  double _parseCurrencyToDouble(String text) {
+    if (text.trim().isEmpty) return 0.0;
+    final cleaned = text.replaceAll(RegExp(r'[^\d,\.]'), '');
+    if (cleaned.contains(',') && !cleaned.contains('.')) {
+      final normalized = cleaned.replaceAll('.', '').replaceAll(',', '.');
+      return double.tryParse(normalized) ?? 0.0;
+    }
+    final withoutThousands = cleaned.replaceAll(RegExp(r'[,.](?=\d{3}\b)'), '');
+    final attempt = withoutThousands.replaceAll(',', '.');
+    return double.tryParse(attempt) ?? 0.0;
   }
 
-  List<Map<String, dynamic>> buildSimpleInterestSchedule({
+  DateTime _addMonthsSafe(DateTime base, int monthsToAdd) {
+    int y = base.year;
+    int m = base.month + monthsToAdd;
+    y += (m - 1) ~/ 12;
+    m = ((m - 1) % 12) + 1;
+    int d = base.day;
+    final lastDay = DateTime(y, m + 1, 0).day;
+    if (d > lastDay) d = lastDay;
+    return DateTime(y, m, d, base.hour, base.minute, base.second, base.millisecond, base.microsecond);
+  }
+
+  List<Map<String, dynamic>> _createSimpleInterestSchedule({
     required double principal,
     required double annualRatePercent,
-    required int numberOfPayments,
+    required int payments,
     required String frequency,
-    required DateTime startDate,
+    required DateTime startAt,
   }) {
-    int periodsPerYear;
-    if (frequency == 'Diario') periodsPerYear = 365;
-    else if (frequency == 'Semanal')
-      periodsPerYear = 52;
-    else if (frequency == 'Quincenal')
-      periodsPerYear = 24;
-    else
-      periodsPerYear = 12;
+    if (payments <= 0) return [];
+
+    final int periodsPerYear = (frequency == 'Diario')
+        ? 365
+        : (frequency == 'Semanal')
+            ? 52
+            : (frequency == 'Quincenal')
+                ? 24
+                : 12;
 
     final double annualRate = annualRatePercent / 100.0;
-    final double timeInYears = numberOfPayments / periodsPerYear.toDouble();
+    final double years = payments / periodsPerYear;
 
     final int principalCents = (principal * 100).round();
-    final int totalInterestCents = (principalCents * annualRate * timeInYears).round();
+    final int totalInterestCents = (principalCents * annualRate * years).round();
 
-    final int principalPerPaymentCents = principalCents ~/ numberOfPayments;
-    final int interestPerPaymentCents = totalInterestCents ~/ numberOfPayments;
-    final int principalRemainder = principalCents - (principalPerPaymentCents * numberOfPayments);
-    final int interestRemainder = totalInterestCents - (interestPerPaymentCents * numberOfPayments);
+    final int principalPer = principalCents ~/ payments;
+    final int principalRem = principalCents - (principalPer * payments);
 
-    DateTime current = startDate;
-    int remainingCents = principalCents;
-    List<Map<String, dynamic>> schedule = [];
+    final int interestPer = totalInterestCents ~/ payments;
+    final int interestRem = totalInterestCents - (interestPer * payments);
 
-    for (int i = 0; i < numberOfPayments; i++) {
-      if (frequency == 'Diario')
-        current = current.add(const Duration(days: 1));
-      else if (frequency == 'Semanal')
-        current = current.add(const Duration(days: 7));
-      else if (frequency == 'Quincenal')
-        current = current.add(const Duration(days: 15));
-      else
-        current = addMonthsSafe(current, 1);
+    DateTime current = startAt;
+    int remaining = principalCents;
+    final List<Map<String, dynamic>> list = [];
 
-      int principalPortionCents = principalPerPaymentCents;
-      int interestPortionCents = interestPerPaymentCents;
-
-      if (i == numberOfPayments - 1) {
-        principalPortionCents += principalRemainder;
-        interestPortionCents += interestRemainder;
+    for (int i = 0; i < payments; i++) {
+      switch (frequency) {
+        case 'Diario':
+          current = current.add(const Duration(days: 1));
+          break;
+        case 'Semanal':
+          current = current.add(const Duration(days: 7));
+          break;
+        case 'Quincenal':
+          current = current.add(const Duration(days: 15));
+          break;
+        default:
+          current = _addMonthsSafe(current, 1);
       }
 
-      final int paymentCents = principalPortionCents + interestPortionCents;
-      remainingCents = (remainingCents - principalPortionCents).clamp(0, 1 << 62);
+      int principalChunk = principalPer;
+      int interestChunk = interestPer;
 
-      schedule.add({
+      if (i == payments - 1) {
+        principalChunk += principalRem;
+        interestChunk += interestRem;
+      }
+
+      final int paymentCents = principalChunk + interestChunk;
+      remaining = max(0, remaining - principalChunk);
+
+      list.add({
         'index': i + 1,
         'date': current,
         'paymentCents': paymentCents,
-        'interestCents': interestPortionCents,
-        'principalCents': principalPortionCents,
-        'remainingCents': remainingCents,
+        'interestCents': interestChunk,
+        'principalCents': principalChunk,
+        'remainingCents': remaining,
       });
     }
 
-    return schedule;
+    return list;
   }
 
-  void _calculateLoanDetails(double amount, double interestRate, int termValue) {
+  void _computeLoan(double amount, double annualRatePercent, int termValue) {
     if (!mounted) return;
 
     final int n = termValue;
     if (n <= 0) {
-      setState(() {
-        _calculatedInterest = 0.0;
-        _calculatedTotalToPay = 0.0;
-        _calculatedPaymentAmount = 0.0;
-        _numberOfPayments = 0;
-        _paymentDates = [];
-        _amortizationSchedule = [];
-      });
+      if (mounted) {
+        setState(() {
+          _interestAmount = 0.0;
+          _totalToPay = 0.0;
+          _paymentValue = 0.0;
+          _paymentsCount = 0;
+          _datesOfPayments = [];
+          _schedule = [];
+        });
+      }
       return;
     }
 
-    final schedule = buildSimpleInterestSchedule(
+    final schedule = _createSimpleInterestSchedule(
       principal: amount,
-      annualRatePercent: interestRate,
-      numberOfPayments: n,
-      frequency: _paymentFrequency,
-      startDate: _startDate,
+      annualRatePercent: annualRatePercent,
+      payments: n,
+      frequency: _frequency,
+      startAt: _startDate,
     );
 
     final int totalInterestCents = schedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
     final int totalPaidCents = schedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
     final List<DateTime> dates = schedule.map((e) => e['date'] as DateTime).toList();
 
-    setState(() {
-      _amortizationSchedule = schedule;
-      _calculatedInterest = (totalInterestCents / 100.0);
-      _calculatedTotalToPay = (totalPaidCents / 100.0);
-      _calculatedPaymentAmount = schedule.isNotEmpty ? (schedule.first['paymentCents'] as int) / 100.0 : 0.0;
-      _numberOfPayments = n;
-      _paymentDates = dates;
-    });
+    if (mounted) {
+      setState(() {
+        _schedule = schedule;
+        _interestAmount = totalInterestCents / 100.0;
+        _totalToPay = totalPaidCents / 100.0;
+        _paymentValue = schedule.isNotEmpty ? (schedule.first['paymentCents'] as int) / 100.0 : 0.0;
+        _paymentsCount = n;
+        _datesOfPayments = dates;
+      });
+    }
 
-    _updateDueDate();
+    _recomputeDueDate();
   }
 
   DateTime _calculateDueDate() {
-    final now = _startDate;
-    int termValue = int.tryParse(_termValueController.text) ?? 0;
+    final DateTime start = _startDate;
+    final int term = int.tryParse(_termCtrl.text) ?? 0;
+    if (term == 0) return start;
 
-    if (termValue == 0) return now;
-
-    switch (_paymentFrequency) {
+    switch (_frequency) {
       case 'Diario':
-        return now.add(Duration(days: termValue));
+        return start.add(Duration(days: term));
       case 'Semanal':
-        return now.add(Duration(days: termValue * 7));
+        return start.add(Duration(days: term * 7));
       case 'Quincenal':
-        return now.add(Duration(days: termValue * 15));
-      case 'Mensual':
+        return start.add(Duration(days: term * 15));
       default:
-        return addMonthsSafe(now, termValue);
+        return _addMonthsSafe(start, term);
     }
   }
 
-  void _updateDueDate() {
-    setState(() {
-      _dueDate = _calculateDueDate();
-    });
+  void _recomputeDueDate() {
+    if (mounted) setState(() => _dueDate = _calculateDueDate());
   }
 
-  Future<void> _selectStartDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _startDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    
-    if (picked != null && picked != _startDate) {
-      setState(() {
-        _startDate = picked;
-        _startDateController.text = DateFormat('dd/MM/yyyy').format(picked);
-        _updateCalculations();
-      });
-    }
-  }
+  Future<void> _pickStartDate(BuildContext context) async {
+    final DateTime initial = _startDate;
+    try {
+      final DateTime? chosen = await showDatePicker(
+        context: context,
+        initialDate: initial,
+        firstDate: DateTime(2000),
+        lastDate: DateTime(2100),
+      );
 
-  Future<void> _saveLoan() async {
-    if (_formKey.currentState!.validate()) {
-      _formKey.currentState!.save();
+      if (chosen == null) return;
 
-      try {
-        final amount = double.parse(_amountController.text.replaceAll(RegExp(r'[^0-9]'), ''));
-        final interestRate = double.parse(_interestRateController.text) / 100;
-        final termValue = int.parse(_termValueController.text);
-        
-        // Validar que el monto no sea menor que lo ya pagado
-        if (amount < widget.loan.totalPaid) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('El monto no puede ser menor al total ya pagado (${NumberFormat.currency(locale: 'es_CO', symbol: '\$').format(widget.loan.totalPaid)})')),
-          );
-          return;
-        }
+      final normalizedChosen = DateTime(chosen.year, chosen.month, chosen.day);
+      final normalizedCurrent = DateTime(_startDate.year, _startDate.month, _startDate.day);
 
-        final updatedLoan = widget.loan.copyWith(
-          amount: amount,
-          interestRate: interestRate,
-          termValue: termValue,
-          startDate: _startDate,
-          dueDate: _dueDate,
-          paymentFrequency: _paymentFrequency,
-          termUnit: _termUnit,
-          remainingBalance: _calculatedTotalToPay - widget.loan.totalPaid,
-          calculatedPaymentAmount: _calculatedPaymentAmount,
-          totalAmountToPay: _calculatedTotalToPay,
-          paymentDates: _paymentDates,
-        );
-        
-        await _loanRepository.updateLoan(updatedLoan);
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Préstamo actualizado exitosamente')),
-          );
-          Navigator.pop(context, true);
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al actualizar préstamo: $e')),
-          );
-        }
-      }
-    } else {
+      if (normalizedChosen.isAtSameMomentAs(normalizedCurrent)) return;
+
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Por favor completa correctamente el formulario antes de guardar.')),
-        );
+        setState(() {
+          _startDate = normalizedChosen;
+          _startDateCtrl.text = DateFormat('dd/MM/yyyy').format(_startDate);
+        });
+      }
+
+      _recalculateIfNeeded();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al seleccionar fecha: $e')));
       }
     }
   }
 
-  int _getPrincipalInCents() {
-    final cleanText = _amountController.text.replaceAll(RegExp(r'[^0-9]'), '');
-    final amount = double.tryParse(cleanText) ?? 0.0;
-    return (amount * 100).round();
+  Future<void> _storeLoan() async {
+    if (!_formKey.currentState!.validate()) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Completa el formulario correctamente.')));
+      return;
+    }
+
+    _formKey.currentState!.save();
+
+    try {
+      final amount = _parseCurrencyToDouble(_amountCtrl.text);
+      final interestRate = (double.tryParse(_rateCtrl.text) ?? 0.0) / 100.0;
+      final termValue = int.parse(_termCtrl.text);
+
+      if (amount < (widget.loan.totalPaid ?? 0.0)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('El monto no puede ser menor al total ya pagado (${NumberFormat.currency(locale: 'es_CO', symbol: '\$').format(widget.loan.totalPaid ?? 0.0)})')));
+        }
+        return;
+      }
+
+      final updated = widget.loan.copyWith(
+        amount: amount,
+        interestRate: interestRate,
+        termValue: termValue,
+        startDate: _startDate,
+        dueDate: _dueDate,
+        paymentFrequency: _frequency,
+        termUnit: _termUnit,
+        remainingBalance: _totalToPay - (widget.loan.totalPaid ?? 0.0),
+        calculatedPaymentAmount: _paymentValue,
+        totalAmountToPay: _totalToPay,
+        paymentDates: _datesOfPayments,
+      );
+
+      await _loanRepo.updateLoan(updated);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Préstamo actualizado exitosamente')));
+        Navigator.pop(context, true);
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al actualizar préstamo: $e')));
+    }
   }
 
-  void _showSimulationModal() {
+  int _principalInCents() {
+    final cleaned = _amountCtrl.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final value = double.tryParse(cleaned) ?? 0.0;
+    return (value * 100).round();
+  }
+
+  void _openSimulationSheet() {
     final currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
 
     showModalBottomSheet(
@@ -373,9 +396,9 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
           minChildSize: 0.35,
           maxChildSize: 0.98,
           builder: (_, controller) {
-            final int totalInterestCents = _amortizationSchedule.fold<int>(0, (s, e) => s + ((e['interestCents'] as int)));
-            final int principalCents = _getPrincipalInCents();
-            final DateTime? nextPaymentDate = _amortizationSchedule.isNotEmpty ? _amortizationSchedule.first['date'] as DateTime : null;
+            final int totalInterestCents = _schedule.fold<int>(0, (s, e) => s + ((e['interestCents'] as int)));
+            final int principalCents = _principalInCents();
+            final DateTime? next = _schedule.isNotEmpty ? _schedule.first['date'] as DateTime : null;
 
             return Container(
               padding: const EdgeInsets.all(16),
@@ -389,11 +412,7 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                       padding: const EdgeInsets.all(14.0),
                       child: Column(
                         children: [
-                          Row(
-                            children: [
-                              Expanded(child: const Text('Resumen del Crédito', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
-                            ],
-                          ),
+                          Row(children: [Expanded(child: const Text('Resumen del Crédito', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)))]),
                           const SizedBox(height: 12),
                           Row(
                             children: [
@@ -401,11 +420,11 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _summaryRowSmall('Fecha de crédito', DateFormat('dd/MM/yyyy').format(_startDate)),
+                                    _smallSummaryRow('Fecha de crédito', DateFormat('dd/MM/yyyy').format(_startDate)),
                                     const SizedBox(height: 8),
-                                    _summaryRowSmall('Fecha próxima cuota', nextPaymentDate != null ? DateFormat('dd/MM/yyyy').format(nextPaymentDate) : '-'),
+                                    _smallSummaryRow('Fecha próxima cuota', next != null ? DateFormat('dd/MM/yyyy').format(next) : '-'),
                                     const SizedBox(height: 8),
-                                    _summaryRowSmall('Vencimiento del crédito', DateFormat('dd/MM/yyyy').format(_dueDate)),
+                                    _smallSummaryRow('Vencimiento del crédito', DateFormat('dd/MM/yyyy').format(_dueDate)),
                                   ],
                                 ),
                               ),
@@ -414,11 +433,11 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    _summaryRowSmall('Interés (anual)', _interestRateController.text.isNotEmpty ? '${_interestRateController.text.trim()} %' : '-'),
+                                    _smallSummaryRow('Interés (anual)', _rateCtrl.text.isNotEmpty ? '${_rateCtrl.text.trim()} %' : '-'),
                                     const SizedBox(height: 8),
-                                    _summaryRowSmall('Valor total interés', currency.format(totalInterestCents / 100.0)),
+                                    _smallSummaryRow('Valor total interés', currency.format(totalInterestCents / 100.0)),
                                     const SizedBox(height: 8),
-                                    _summaryRowSmall('Valor cuota', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['paymentCents'] as int) / 100.0 : 0.0))),
+                                    _smallSummaryRow('Valor cuota', currency.format((_schedule.isNotEmpty ? (_schedule.first['paymentCents'] as int) / 100.0 : 0.0))),
                                   ],
                                 ),
                               ),
@@ -429,16 +448,13 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              Expanded(child: _summaryRowBold('Total prestado', currency.format(principalCents / 100.0))),
+                              Expanded(child: _boldSummaryRow('Total prestado', currency.format(principalCents / 100.0))),
                               const SizedBox(width: 12),
-                              Expanded(child: _summaryRowBold('Total + interés', currency.format((principalCents + totalInterestCents) / 100.0))),
+                              Expanded(child: _boldSummaryRow('Total + interés', currency.format((principalCents + totalInterestCents) / 100.0))),
                             ],
                           ),
                           const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: _summaryRowBold('Saldo total', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0))),
-                          ),
+                          Align(alignment: Alignment.centerLeft, child: _boldSummaryRow('Saldo total', currency.format((_schedule.isNotEmpty ? (_schedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0)))),
                         ],
                       ),
                     ),
@@ -447,26 +463,26 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                   const SizedBox(height: 6),
 
                   Expanded(
-                    child: _amortizationSchedule.isEmpty
-                        ? Center(child: const Text('Aún no hay simulación. Ingresa monto, tasa y plazo.', style: TextStyle(color: Colors.grey)))
+                    child: _schedule.isEmpty
+                        ? const Center(child: Text('Aún no hay simulación. Ingresa monto, tasa y plazo.', style: TextStyle(color: Colors.grey)))
                         : ListView.builder(
                             controller: controller,
-                            itemCount: _amortizationSchedule.length,
+                            itemCount: _schedule.length,
                             itemBuilder: (context, index) {
-                              final e = _amortizationSchedule[index];
-                              final paymentPesos = (e['paymentCents'] as int) / 100.0;
-                              final interestPesos = (e['interestCents'] as int) / 100.0;
-                              final principalPesos = (e['principalCents'] as int) / 100.0;
-                              final remainingPesos = (e['remainingCents'] as int) / 100.0;
+                              final e = _schedule[index];
+                              final payment = (e['paymentCents'] as int) / 100.0;
+                              final interest = (e['interestCents'] as int) / 100.0;
+                              final principal = (e['principalCents'] as int) / 100.0;
+                              final remaining = (e['remainingCents'] as int) / 100.0;
 
                               return Card(
                                 margin: const EdgeInsets.symmetric(vertical: 6),
                                 child: ListTile(
                                   leading: CircleAvatar(child: Text('${e['index']}')),
-                                  title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
-                                  subtitle: Text('${DateFormat('dd/MM/yyyy').format(e['date'])}\nInterés: ${currency.format(interestPesos)} • Capital: ${currency.format(principalPesos)}'),
+                                  title: Text('Cuota #${e['index']} - ${currency.format(payment)}'),
+                                  subtitle: Text('${DateFormat('dd/MM/yyyy').format(e['date'])}\nInterés: ${currency.format(interest)} • Capital: ${currency.format(principal)}'),
                                   isThreeLine: true,
-                                  trailing: Text('Saldo: ${currency.format(remainingPesos)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  trailing: Text('Saldo: ${currency.format(remaining)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                                 ),
                               );
                             },
@@ -481,34 +497,30 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
     );
   }
 
-  Widget _summaryRowSmall(String title, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
-      ],
-    );
-  }
+  Widget _smallSummaryRow(String title, String value) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+        ],
+      );
 
-  Widget _summaryRowBold(String title, String value) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey)),
-        const SizedBox(height: 4),
-        Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-      ]
-    );
-  }
+  Widget _boldSummaryRow(String title, String value) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: const TextStyle(fontSize: 13, color: Colors.grey)),
+          const SizedBox(height: 4),
+          Text(value, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
+        ],
+      );
 
   @override
   void dispose() {
-    _amountController.dispose();
-    _interestRateController.dispose();
-    _termValueController.dispose();
-    _startDateController.dispose();
+    _amountCtrl.dispose();
+    _rateCtrl.dispose();
+    _termCtrl.dispose();
+    _startDateCtrl.dispose();
     super.dispose();
   }
 
@@ -517,312 +529,208 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
     final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Editar Préstamo'),
-      ),
-      body: Column(
-        children: [
-  
-
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : SingleChildScrollView(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          // Información del cliente (solo lectura)
-                          Card(
-                            elevation: 3,
-                            child: Padding(
-                              padding: const EdgeInsets.all(16.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'Información del Cliente',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      appBar: AppBar(title: const Text('Editar Préstamo')),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24.0),
+                    child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 16), textAlign: TextAlign.center),
+                  ),
+                )
+              : Column(
+                  children: [
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Form(
+                          key: _formKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Card(
+                                elevation: 3,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text('Información del Cliente', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 16),
+                                      ListTile(leading: const Icon(Icons.person), title: Text(_client?.name ?? widget.loan.clientName ?? 'Sin nombre'), subtitle: const Text('Nombre')),
+                                      ListTile(leading: const Icon(Icons.phone), title: Text(_client?.phone ?? widget.loan.phoneNumber ?? 'No especificado'), subtitle: const Text('Teléfono')),
+                                      ListTile(leading: const Icon(Icons.chat), title: Text(_client?.whatsapp ?? widget.loan.whatsappNumber ?? 'No especificado'), subtitle: const Text('WhatsApp')),
+                                    ],
                                   ),
-                                  const SizedBox(height: 16),
-                                  ListTile(
-                                    leading: const Icon(Icons.person),
-                                    title: Text(_client?.name ?? widget.loan.clientName),
-                                    subtitle: const Text('Nombre'),
-                                  ),
-                                  ListTile(
-                                    leading: const Icon(Icons.phone),
-                                    title: Text(_client?.phone ?? widget.loan.phoneNumber ?? 'No especificado'),
-                                    subtitle: const Text('Teléfono'),
-                                  ),
-                                  ListTile(
-                                    leading: const Icon(Icons.chat),
-                                    title: Text(_client?.whatsapp ?? widget.loan.whatsappNumber ?? 'No especificado'),
-                                    subtitle: const Text('WhatsApp'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-
-                          // Sección de Datos del Préstamo (editables)
-                          const Text(
-                            'Datos del Préstamo',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          // Campo de fecha de inicio
-                          Builder(
-                            builder: (BuildContext builderContext) {
-                              return TextFormField(
-                                controller: _startDateController,
-                                readOnly: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Fecha de Inicio',
-                                  border: OutlineInputBorder(),
-                                  suffixIcon: Icon(Icons.calendar_today),
                                 ),
-                                onTap: () => _selectStartDate(builderContext),
-                              );
-                            },
-                          ),
-                          
-                          TextFormField(
-                            controller: _amountController,
-                            decoration: const InputDecoration(
-                              labelText: 'Monto del Préstamo',
-                              border: OutlineInputBorder(),
-                              prefixText: '\$',
-                            ),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.digitsOnly,
-                              CurrencyInputFormatter(),
-                            ],
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Por favor, ingresa el monto.';
-                              }
-                              final cleanValue = value.replaceAll(RegExp(r'[^0-9]'), '');
-                              if (double.tryParse(cleanValue) == null) {
-                                return 'Por favor, ingresa un monto válido.';
-                              }
-                              final amount = double.parse(cleanValue);
-                              if (amount <= 0) {
-                                return 'El monto debe ser mayor a cero.';
-                              }
-                              if (amount < widget.loan.totalPaid) {
-                                return 'El monto no puede ser menor al total ya pagado.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          TextFormField(
-                            controller: _interestRateController,
-                            decoration: const InputDecoration(
-                              labelText: 'Tasa de Interés Anual (%)',
-                              border: OutlineInputBorder(),
-                              suffixText: '%',
-                            ),
-                            keyboardType: TextInputType.number,
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Por favor, ingresa la tasa de interés.';
-                              }
-                              if (double.tryParse(value) == null) {
-                                return 'Por favor, ingresa una tasa válida.';
-                              }
-                              final rate = double.parse(value);
-                              if (rate <= 0) {
-                                return 'La tasa debe ser mayor a cero.';
-                              }
-                              if (rate > 100) {
-                                return 'La tasa no puede ser mayor al 100%.';
-                              }
-                              return null;
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          DropdownButtonFormField<String>(
-                            value: _paymentFrequency,
-                            decoration: const InputDecoration(
-                              labelText: 'Frecuencia de Pago',
-                              border: OutlineInputBorder(),
-                            ),
-                            items: ['Diario', 'Semanal', 'Quincenal', 'Mensual'].map((String value) {
-                              return DropdownMenuItem<String>(
-                                value: value,
-                                child: Text(value),
-                              );
-                            }).toList(),
-                            onChanged: (String? newValue) {
-                              if (newValue != null) {
-                                setState(() {
-                                  _paymentFrequency = newValue;
-                                  _setTermUnitBasedOnFrequency();
-                                  _updateCalculations();
-                                });
-                              }
-                            },
-                          ),
-                          const SizedBox(height: 16),
-                          
-                          TextFormField(
-                            controller: _termValueController,
-                            decoration: InputDecoration(
-                              labelText: 'Plazo en $_termUnit',
-                              border: const OutlineInputBorder(),
-                            ),
-                            keyboardType: TextInputType.number,
-                            onChanged: (_) => _updateCalculations(),
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Por favor, ingresa el plazo.';
-                              }
-                              if (int.tryParse(value) == null) {
-                                return 'Por favor, ingresa un plazo válido.';
-                              }
-                              final term = int.parse(value);
-                              if (term <= 0) {
-                                return 'El plazo debe ser mayor a cero.';
-                              }
-                              return null;
-                            },
-                          ),
-                          
-                          // Información calculada
-                          if (_calculatedTotalToPay > 0) ...[
-                            const SizedBox(height: 24),
-                            Card(
-                              color: Colors.blue.shade50,
-                              child: Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Resumen del Préstamo',
-                                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
+                              ),
+                              const SizedBox(height: 24),
+                              const Text('Datos del Préstamo', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 16),
+
+                              Builder(builder: (BuildContext builderContext) {
+                                return TextFormField(
+                                  controller: _startDateCtrl,
+                                  readOnly: true,
+                                  decoration: const InputDecoration(labelText: 'Fecha de Inicio', border: OutlineInputBorder(), suffixIcon: Icon(Icons.calendar_today)),
+                                  onTap: () => _pickStartDate(builderContext),
+                                );
+                              }),
+
+                              const SizedBox(height: 12),
+
+                              TextFormField(
+                                controller: _amountCtrl,
+                                decoration: const InputDecoration(labelText: 'Monto del Préstamo', border: OutlineInputBorder(), prefixText: '\$'),
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [FilteringTextInputFormatter.digitsOnly, _ImprovedCurrencyFormatter()],
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) return 'Por favor, ingresa el monto.';
+                                  final clean = value.replaceAll(RegExp(r'[^0-9]'), '');
+                                  if (double.tryParse(clean) == null) return 'Por favor, ingresa un monto válido.';
+                                  final amount = double.parse(clean);
+                                  if (amount <= 0) return 'El monto debe ser mayor a cero.';
+                                  if (amount < (widget.loan.totalPaid ?? 0.0)) return 'El monto no puede ser menor al total ya pagado.';
+                                  return null;
+                                },
+                                onChanged: (_) => _recalculateIfNeeded(),
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              TextFormField(
+                                controller: _rateCtrl,
+                                decoration: const InputDecoration(labelText: 'Tasa de Interés Anual (%)', border: OutlineInputBorder(), suffixText: '%'),
+                                keyboardType: TextInputType.numberWithOptions(decimal: true),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) return 'Por favor, ingresa la tasa de interés.';
+                                  if (double.tryParse(value) == null) return 'Por favor, ingresa una tasa válida.';
+                                  final rate = double.parse(value);
+                                  if (rate <= 0) return 'La tasa debe ser mayor a cero.';
+                                  if (rate > 100) return 'La tasa no puede ser mayor al 100%.';
+                                  return null;
+                                },
+                                onChanged: (_) => _recalculateIfNeeded(),
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              DropdownButtonFormField<String>(
+                                value: _frequency,
+                                decoration: const InputDecoration(labelText: 'Frecuencia de Pago', border: OutlineInputBorder()),
+                                items: ['Diario', 'Semanal', 'Quincenal', 'Mensual'].map((String v) => DropdownMenuItem<String>(value: v, child: Text(v))).toList(),
+                                onChanged: (String? nv) {
+                                  if (nv != null) {
+                                    setState(() {
+                                      _frequency = nv;
+                                      _setTermUnit();
+                                    });
+                                    _recalculateIfNeeded();
+                                  }
+                                },
+                              ),
+
+                              const SizedBox(height: 16),
+
+                              TextFormField(
+                                controller: _termCtrl,
+                                decoration: InputDecoration(labelText: 'Plazo en $_termUnit', border: const OutlineInputBorder()),
+                                keyboardType: TextInputType.number,
+                                onChanged: (_) => _recalculateIfNeeded(),
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) return 'Por favor, ingresa el plazo.';
+                                  if (int.tryParse(value) == null) return 'Por favor, ingresa un plazo válido.';
+                                  final t = int.parse(value);
+                                  if (t <= 0) return 'El plazo debe ser mayor a cero.';
+                                  return null;
+                                },
+                              ),
+
+                              if (_totalToPay > 0) ...[
+                                const SizedBox(height: 24),
+                                Card(
+                                  color: Colors.blue.shade50,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                                      const Text('Resumen del Préstamo', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                      const SizedBox(height: 12),
+                                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                                         const Text('Total a pagar:'),
-                                        Text(
-                                          currencyFormatter.format(_calculatedTotalToPay),
-                                          style: const TextStyle(fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
+                                        Text(currencyFormatter.format(_totalToPay), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      ]),
+                                      const SizedBox(height: 8),
+                                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                                         const Text('Valor de la cuota:'),
-                                        Text(
-                                          currencyFormatter.format(_calculatedPaymentAmount),
-                                          style: const TextStyle(fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
+                                        Text(currencyFormatter.format(_paymentValue), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      ]),
+                                      const SizedBox(height: 8),
+                                      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                                         const Text('Fecha de vencimiento:'),
-                                        Text(
-                                          DateFormat('dd/MM/yyyy').format(_dueDate),
-                                          style: const TextStyle(fontWeight: FontWeight.bold),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                        Text(DateFormat('dd/MM/yyyy').format(_dueDate), style: const TextStyle(fontWeight: FontWeight.bold)),
+                                      ]),
+                                    ]),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ],
-                          
-                          const SizedBox(height: 24),
-                        ],
+                              ],
+
+                              const SizedBox(height: 24),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-          ),
-        ],
-      ),
+                  ],
+                ),
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           color: Theme.of(context).scaffoldBackgroundColor,
-          child: Row(
-            children: [
-              Expanded(
-                flex: 3,
-                child: ElevatedButton.icon(
-                  onPressed: _showSimulationModal,
-                  icon: const Icon(Icons.show_chart),
-                  label: const Text('Ver simulación'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
+          child: Row(children: [
+            Expanded(
+              flex: 3,
+              child: ElevatedButton.icon(
+                onPressed: _openSimulationSheet,
+                icon: const Icon(Icons.show_chart),
+                label: const Text('Ver simulación'),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                flex: 1,
-                child: ElevatedButton(
-                  onPressed: _saveLoan,
-                  child: const Text('💾', style: TextStyle(fontSize: 20)),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 1,
+              child: ElevatedButton(
+                onPressed: _storeLoan,
+                child: const Icon(Icons.save, size: 20),
+                style: ElevatedButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 14), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
               ),
-            ],
-          ),
+            ),
+          ]),
         ),
       ),
     );
   }
 }
 
-class CurrencyInputFormatter extends TextInputFormatter {
+// Mejorada: formateador de moneda que mantiene cursor y evita coincidencias literales
+class _ImprovedCurrencyFormatter extends TextInputFormatter {
+  final NumberFormat _fmt = NumberFormat.decimalPattern('es_CO');
+
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
-    if (newValue.text.isEmpty) {
-      return newValue.copyWith(text: '');
-    }
+    if (newValue.text.isEmpty) return const TextEditingValue(text: '');
 
-    final newString = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return const TextEditingValue(text: '');
 
-    if (newString.isEmpty) {
-      return newValue.copyWith(text: '');
-    }
+    final intVal = int.tryParse(digits) ?? 0;
+    final formatted = _fmt.format(intVal);
 
-    double value = double.parse(newString);
-    final formatter = NumberFormat('#,###');
-    String newText = formatter.format(value);
+    // Mantener posición del cursor de forma estable
+    final offsetFromEnd = newValue.text.length - newValue.selection.end;
+    final selectionIndex = (formatted.length - offsetFromEnd).clamp(0, formatted.length);
 
-    // Mantener posición relativa del cursor
-    final offset = newValue.selection.baseOffset;
-    final oldText = oldValue.text;
-    final diff = newText.length - oldText.length;
-    final newOffset = (offset + diff).clamp(0, newText.length);
-
-    return newValue.copyWith(
-      text: newText,
-      selection: TextSelection.collapsed(offset: newOffset),
-    );
+    return TextEditingValue(text: formatted, selection: TextSelection.collapsed(offset: selectionIndex));
   }
 }

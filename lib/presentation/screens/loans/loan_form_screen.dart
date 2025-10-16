@@ -1,11 +1,3 @@
-// lib/presentation/screens/loans/loan_form_screen.dart
-//#################################################
-//#  Pantalla de Formulario de Préstamo           #
-//#  Permite crear o editar un préstamo,           #
-//#  seleccionar cliente, ingresar datos y ver    #
-//#  simulación de pagos.                         #
-//#################################################
-
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -16,7 +8,7 @@ import 'package:loan_app/domain/entities/client.dart';
 import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
-import 'package:loan_app/presentation/screens/loans/loan_edit_screen.dart'; // ✅ Importación agregada
+import 'package:loan_app/presentation/screens/loans/loan_edit_screen.dart';
 
 class LoanFormScreen extends StatefulWidget {
   final LoanModel? loan;
@@ -36,7 +28,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   final TextEditingController _clientLastNameController = TextEditingController();
   final TextEditingController _phoneNumberController = TextEditingController();
   final TextEditingController _whatsappNumberController = TextEditingController();
-  // ✅ Controlador para la fecha de inicio
   final TextEditingController _startDateController = TextEditingController();
 
   final LoanRepository _loanRepository = LoanRepository();
@@ -49,21 +40,14 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   Client? _selectedClient;
   List<Client> _clients = [];
   bool _isLoadingClients = false;
-
-  // Nuevo flag: si true, estamos en modo "crear cliente nuevo" aunque haya uno seleccionado
   bool _isCreatingNewClient = false;
-
-  // Para elegir convención de quincena: true -> 26 quincenas/año (14 días cada una)
   final bool _use26Quincenas = true;
 
-  // Totales mostrados (en pesos)
   double _calculatedInterest = 0.0;
   double _calculatedTotalToPay = 0.0;
   double _calculatedPaymentAmount = 0.0;
   int _numberOfPayments = 0;
   List<DateTime> _paymentDates = [];
-
-  // Schedule: cada entrada almacena montos en CENTAVOS (int)
   List<Map<String, dynamic>> _amortizationSchedule = [];
 
   @override
@@ -75,11 +59,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _amountController.addListener(_updateCalculations);
     _interestRateController.addListener(_updateCalculations);
     _termValueController.addListener(_updateCalculations);
-
-    // ✅ Inicializar el controlador de fecha
     _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
 
-    // Si venimos en modo edición, precargar los valores del préstamo
     if (widget.loan != null) {
       _prefillFromLoan(widget.loan!);
     }
@@ -97,24 +78,19 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _clientLastNameController.dispose();
     _phoneNumberController.dispose();
     _whatsappNumberController.dispose();
-    // ✅ Liberar el nuevo controlador
     _startDateController.dispose();
     super.dispose();
   }
 
-  /// Normaliza fecha a 00:00
   DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
 
   void _prefillFromLoan(LoanModel loan) {
-    // Llenar campos del formulario desde el LoanModel existente
     _amountController.text = loan.amount.toStringAsFixed(0);
-    // Asumimos que interestRate en el modelo está guardado en decimal (ej 0.05) -> mostramos %
     _interestRateController.text = (loan.interestRate * 100).toString();
     _termValueController.text = loan.termValue.toString();
     _paymentFrequency = loan.paymentFrequency;
     _setTermUnitBasedOnFrequency();
     _startDate = loan.startDate;
-    // ✅ Actualizar el controlador tras precargar
     _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
     _dueDate = loan.dueDate;
     _paymentDates = loan.paymentDates ?? [];
@@ -122,7 +98,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _calculatedPaymentAmount = loan.calculatedPaymentAmount ?? _calculatedPaymentAmount;
     _calculatedInterest = (loan.totalAmountToPay ?? 0.0) - (loan.amount);
     _numberOfPayments = loan.termValue;
-    _amortizationSchedule = []; // Será recalculado por _updateCalculations si el usuario modifica
+    _amortizationSchedule = [];
   }
 
   Future<void> _loadClients() async {
@@ -130,17 +106,11 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       _isLoadingClients = true;
     });
     try {
-      final loadedClients = await _client_repository_getClients_safe();
-      // no hacemos nada con el primer intento (compatibilidad), luego intentamos otra vez
-    } catch (_) {}
-
-    try {
-      final loadedClients = await _client_repository_getClients_safe();
+      final loadedClients = await _clientRepository.getClients();
       setState(() {
         _clients = loadedClients;
       });
 
-      // Si estamos en edición, intentar seleccionar el cliente correspondiente
       if (widget.loan != null && widget.loan!.clientId.isNotEmpty) {
         final match = _clients.firstWhere(
           (c) => c.id == widget.loan!.clientId,
@@ -171,11 +141,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     }
   }
 
-  // pequeña envoltura para evitar que el analizador marque el repositorio directo como error
-  Future<List<Client>> _client_repository_getClients_safe() async {
-    return await _clientRepository.getClients();
-  }
-
   void _setTermUnitBasedOnFrequency() {
     switch (_paymentFrequency) {
       case 'Diario':
@@ -195,9 +160,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   }
 
   void _updateCalculations() {
-    // extraer monto limpio (acepta miles sin comas)
     final amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
-    // interest en % ingresado por el usuario (ej 5 -> 5%)
     final interestRateInput = double.tryParse(_interestRateController.text) ?? 0.0;
     final termValue = int.tryParse(_termValueController.text) ?? 0;
 
@@ -240,9 +203,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
   }
 
-  /// Construye cronograma tipo ANUIDAD (cuota fija).
-  /// Devuelve lista de mapas con campos en centavos:
-  /// 'index','date','paymentCents','interestCents','principalCents','remainingCents'
   List<Map<String, dynamic>> buildAnnuitySchedule({
     required double principal,
     required double annualRatePercent,
@@ -252,13 +212,12 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   }) {
     final int periodsPerYear = _periodsPerYearForFrequency(frequency);
     final double annualRate = annualRatePercent / 100.0;
-    final double r = annualRate / periodsPerYear; // tasa por periodo (decimal)
+    final double r = annualRate / periodsPerYear;
 
     final int principalCents = (principal * 100).round();
     final int n = numberOfPayments;
     if (n <= 0) return [];
 
-    // cuota fija (en moneda) usando fórmula de anualidad
     double payment;
     if (r > 0) {
       final denom = 1 - pow(1 + r, -n);
@@ -276,38 +235,27 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     int sumPaymentsCents = 0;
 
     for (int i = 0; i < n; i++) {
-      // calcular fecha del siguiente pago
       if (frequency == 'Diario') {
         current = current.add(const Duration(days: 1));
       } else if (frequency == 'Semanal') {
         current = current.add(const Duration(days: 7));
       } else if (frequency == 'Quincenal') {
-        // usa 14 ó 15 según la convención que tengas
         current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
       } else {
         current = addMonthsSafe(current, 1);
       }
 
-      // interés del periodo = remaining * r
       final double interestForPeriod = (remainingCents / 100.0) * r;
       int interestCents = (interestForPeriod * 100).round();
-
-      // principal pagado = payment - interest
       int principalCentsForPeriod = paymentCentsBase - interestCents;
-
-      // evitar principal negativo por r grande
       if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
 
-      // Si es el último pago: liquidar lo que quede (principal)
       if (i == n - 1) {
-        // recalc interés sobre remaining (mejor precisión)
         interestCents = ((remainingCents / 100.0) * r * 100).round();
         principalCentsForPeriod = remainingCents;
       }
 
       final int paymentCents = principalCentsForPeriod + interestCents;
-
-      // actualizar remaining
       remainingCents = max(0, remainingCents - principalCentsForPeriod);
 
       totalInterestAccumCents += interestCents;
@@ -323,21 +271,14 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       });
     }
 
-    // Ajuste final por redondeos: sólo si suma != principal + interés acumulado
     final int expectedTotalPaid = principalCents + totalInterestAccumCents;
     final int delta = expectedTotalPaid - sumPaymentsCents;
     if (delta != 0 && schedule.isNotEmpty) {
-      // aplicamos delta al componente de principal del último pago
       final last = schedule.last;
-      // si por alguna razón el último principal quedó en 0 (caso raro), lo añadimos al payment directamente
       last['principalCents'] = (last['principalCents'] as int) + delta;
       last['paymentCents'] = (last['paymentCents'] as int) + delta;
-      // asegurar remaining en 0
       last['remainingCents'] = 0;
     }
-
-    // Si hay entradas con paymentCents == 0 (por ejemplo r muy alto y paymentCentsBase fue 0),
-    // podemos optar por ocultarlas en UI. Aquí las dejamos en schedule (UI filtrará).
     return schedule;
   }
 
@@ -380,7 +321,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   }
 
   DateTime _calculateDueDate() {
-    // ✅ Usar _startDate en lugar de DateTime.now()
     final now = _startDate;
     int termValue = int.tryParse(_termValueController.text) ?? 0;
 
@@ -405,7 +345,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     });
   }
 
-  // ✅ Función para seleccionar la fecha de inicio
   Future<void> _selectStartDate(BuildContext context) async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -418,7 +357,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       setState(() {
         _startDate = picked;
         _startDateController.text = DateFormat('dd/MM/yyyy').format(picked);
-        _updateCalculations(); // ✅ Recalcular con la nueva fecha
+        _updateCalculations();
       });
     }
   }
@@ -432,14 +371,12 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       String? phoneNumber;
       String? whatsappNumber;
 
-      // Si hay cliente seleccionado y NO estamos en modo crear nuevo, usamos sus datos
       if (!_isCreatingNewClient && _selectedClient != null && _selectedClient!.id.isNotEmpty) {
         clientId = _selectedClient!.id;
         clientName = '${_selectedClient!.name} ${_selectedClient!.lastName}';
         phoneNumber = _selectedClient!.phone;
         whatsappNumber = _selectedClient!.whatsapp;
       } else {
-        // Modo crear nuevo cliente
         if (_clientNameController.text.isNotEmpty && _clientLastNameController.text.isNotEmpty) {
           phoneNumber = _phoneNumberController.text.trim();
           whatsappNumber = _whatsappNumberController.text.trim();
@@ -465,17 +402,14 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         }
       }
 
-      // Preparar datos del préstamo
       final double amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
       final double interestRatePercent = double.tryParse(_interestRateController.text) ?? 0.0;
       final int termValue = int.tryParse(_termValueController.text) ?? 1;
 
-      // Si todavía no hay schedule calculado (por ejemplo user no modificó después de cargar), calcularlo
       if (_amortizationSchedule.isEmpty || _paymentDates.isEmpty) {
         _calculateLoanDetails(amount, interestRatePercent, termValue);
       }
 
-      // Usamos el mismo id si estamos editando
       final idToUse = widget.loan?.id ?? const Uuid().v4();
 
       final newLoan = LoanModel(
@@ -483,10 +417,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         clientId: clientId!,
         clientName: clientName!,
         amount: amount,
-        // guardamos como decimal (0.05) para mantener consistencia con otras partes
         interestRate: (interestRatePercent / 100),
         termValue: termValue,
-        startDate: _startDate, // ✅ Ya se usa la fecha seleccionada
+        startDate: _startDate,
         dueDate: _dueDate,
         paymentFrequency: _paymentFrequency,
         termUnit: _termUnit,
@@ -501,7 +434,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         paymentDates: _paymentDates,
       );
 
-      // Guardar préstamo (addLoan puede crear o sobrescribir según tu implementación)
       await _loanRepository.addLoan(newLoan);
 
       if (mounted) {
@@ -543,11 +475,10 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
               padding: const EdgeInsets.all(16),
               child: Column(
                 children: [
-                  // ✅ NUEVO: SingleChildScrollView para el resumen fijo
                   Expanded(
-                    flex: 0, // No expande, ocupa solo su altura natural
+                    flex: 0,
                     child: SingleChildScrollView(
-                      physics: const NeverScrollableScrollPhysics(), // Evita scroll interno duplicado
+                      physics: const NeverScrollableScrollPhysics(),
                       child: Card(
                         elevation: 6,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -607,7 +538,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                                 child: _summaryRowBold('Saldo total', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0))),
                               ),
                               const SizedBox(height: 8),
-                              // Interés primer periodo mostrado claramente
                               Align(
                                 alignment: Alignment.centerLeft,
                                 child: _summaryRowSmall('Interés primer periodo', currency.format(firstInterest)),
@@ -618,9 +548,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 6),
-
                   Expanded(
                     child: _amortizationSchedule.isEmpty
                         ? Center(child: Text('Aún no hay simulación. Ingresa monto, tasa y plazo.', style: TextStyle(color: Colors.grey[700])))
@@ -704,11 +632,8 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-
-              // Row: dropdown + botón para crear nuevo cliente
               Row(
                 children: [
-                  // Dropdown expandible para evitar overflow
                   Expanded(
                     child: _isLoadingClients
                         ? const Center(child: CircularProgressIndicator())
@@ -732,7 +657,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                             onChanged: (client) {
                               setState(() {
                                 _selectedClient = client;
-                                // Al seleccionar uno existente, salimos de modo "crear nuevo"
                                 _isCreatingNewClient = false;
                                 if (client != null) {
                                   _clientNameController.text = client.name;
@@ -749,10 +673,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                             },
                           ),
                   ),
-
                   const SizedBox(width: 8),
-
-                  // Botón para cambiar a "nuevo cliente" incluso si ya hay uno seleccionado
                   SizedBox(
                     height: 48,
                     child: OutlinedButton(
@@ -769,10 +690,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                       child: const Text('Nuevo cliente'),
                     ),
                   ),
-
                   const SizedBox(width: 8),
-
-                  // Si estamos en modo "crear nuevo", mostramos botón para volver a usar existentes
                   if (_isCreatingNewClient)
                     SizedBox(
                       height: 48,
@@ -787,11 +705,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                     ),
                 ],
               ),
-
               const SizedBox(height: 16),
               const Center(child: Text('O crea uno nuevo', style: TextStyle(fontStyle: FontStyle.italic))),
               const SizedBox(height: 16),
-
               TextFormField(
                 controller: _clientNameController,
                 decoration: const InputDecoration(
@@ -840,14 +756,11 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 keyboardType: TextInputType.phone,
               ),
               const SizedBox(height: 24),
-
               const Text(
                 'Datos del Préstamo',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-
-              // ✅ Campo de fecha de inicio del préstamo
               TextFormField(
                 controller: _startDateController,
                 readOnly: true,
@@ -859,7 +772,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 onTap: () => _selectStartDate(context),
               ),
               const SizedBox(height: 16),
-
               TextFormField(
                 controller: _amountController,
                 decoration: const InputDecoration(
@@ -937,7 +849,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
           ),
         ),
       ),
-
       bottomNavigationBar: SafeArea(
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -954,8 +865,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ).copyWith(
-                    animationDuration: Duration.zero, // ✅ Evita errores de animación
                   ),
                 ),
               ),
@@ -968,8 +877,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                   style: ElevatedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ).copyWith(
-                    animationDuration: Duration.zero, // ✅ Evita errores de animación
                   ),
                 ),
               ),
@@ -981,24 +888,19 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   }
 }
 
-/// Formateador simple para el input de monto (miles)
 class CurrencyInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     if (newValue.text.isEmpty) {
       return newValue.copyWith(text: '');
     }
-
     final newString = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
-
     if (newString.isEmpty) {
       return newValue.copyWith(text: '');
     }
-
     double value = double.parse(newString);
     final formatter = NumberFormat('#,###');
     String newText = formatter.format(value);
-
     return newValue.copyWith(
       text: newText,
       selection: TextSelection.collapsed(offset: newText.length),

@@ -3,7 +3,7 @@
 //#########################################
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Para Clipboard
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
@@ -20,16 +20,12 @@ import 'package:provider/provider.dart';
 import 'package:loan_app/presentation/providers/loan_provider.dart';
 import 'package:loan_app/presentation/screens/loans/loan_detail_screen.dart';
 import 'package:intl/intl.dart';
-// ✅ Importar la pantalla de historial real
 import 'package:loan_app/presentation/screens/payments/payment_history_screen.dart';
-// ✅ NUEVO: Importar url_launcher
 import 'package:url_launcher/url_launcher.dart';
-
 
 class CreatorInfoScreen extends StatelessWidget {
   const CreatorInfoScreen({super.key});
 
-  // Helper para construir las filas de información no interactivas
   Widget _buildInfoRow(IconData icon, String title, String value) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -61,20 +57,16 @@ class CreatorInfoScreen extends StatelessWidget {
     );
   }
 
-  // ✅ Método para fila de email copiable con feedback visual
   Widget _buildCopyableEmailRow(BuildContext context, IconData icon, String title, String email) {
     return InkWell(
       onTap: () async {
-        // Copiar el email al portapapeles
         await Clipboard.setData(ClipboardData(text: email));
-        
-        // Mostrar mensaje de confirmación
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Correo copiado: $email'),
             duration: const Duration(seconds: 2),
-            backgroundColor: const Color(0xFF43A047), // Verde de éxito
+            backgroundColor: const Color(0xFF43A047),
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(10),
@@ -127,34 +119,28 @@ class CreatorInfoScreen extends StatelessWidget {
     );
   }
 
-  // ✅ MÉTODO CORREGIDO: Manejo de URL más robusto
   Widget _buildLinkRow(BuildContext context, IconData icon, String title, String url) {
     return InkWell(
       onTap: () async {
         try {
-          // 1. Asegurar que la URL tenga un esquema (https://)
           String validatedUrl = url.contains('://') ? url : 'https://$url';
           final uri = Uri.parse(validatedUrl);
-          
-          // 2. Verificar si el enlace se puede abrir
           if (await canLaunchUrl(uri)) {
             await launchUrl(
-              uri, 
-              mode: LaunchMode.externalApplication, // Abrir en navegador externo
+              uri,
+              mode: LaunchMode.externalApplication,
             );
           } else {
-            // Manejar la imposibilidad de abrir
             if (!context.mounted) return;
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('No se pudo abrir el enlace. Verifica la URL: $validatedUrl'),
-                backgroundColor: const Color(0xFFE53935), // Rojo de error
+                backgroundColor: const Color(0xFFE53935),
                 duration: const Duration(seconds: 3),
               ),
             );
           }
         } catch (e) {
-          // Manejar errores de parseo o lanzamiento
           if (!context.mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -209,7 +195,7 @@ class CreatorInfoScreen extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Información del Creador'),
         backgroundColor: const Color(0xFF1E88E5),
-        iconTheme: const IconThemeData(color: Colors.white), // Color del ícono de atrás
+        iconTheme: const IconThemeData(color: Colors.white),
         titleTextStyle: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
       ),
       body: SingleChildScrollView(
@@ -237,7 +223,7 @@ class CreatorInfoScreen extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Versión 1.0.2',
+              'Versión 1.0.3',
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
@@ -263,7 +249,7 @@ class CreatorInfoScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Kevin Buesaquillo', 
+                      'Kevin Buesaquillo',
                       style: TextStyle(
                         fontSize: 22,
                         fontWeight: FontWeight.bold,
@@ -274,16 +260,13 @@ class CreatorInfoScreen extends StatelessWidget {
                     const SizedBox(height: 20),
                     const Divider(),
                     const SizedBox(height: 15),
-                    // ✅ Email copiable con feedback
                     _buildCopyableEmailRow(context, Icons.email, 'Email:', 'kevinstiventimaran@gmail.com'),
                     const SizedBox(height: 10),
-                    // ✅ Enlace con manejo de URL robusto
                     _buildLinkRow(
                       context,
-                      Icons.link, 
-                      'Contacto Digital:', 
-                      // Se pasa la URL sin https para que el método la añada si es necesario
-                      'linktr.ee/Kevin_Buesaquillo' 
+                      Icons.link,
+                      'Contacto Digital:',
+                      'linktr.ee/Kevin_Buesaquillo',
                     ),
                     const SizedBox(height: 10),
                     _buildInfoRow(Icons.code, 'Tecnologías:', 'Flutter, Dart, Hive'),
@@ -338,11 +321,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _isOptionsExpanded = false;
   late AnimationController _arrowAnimationController;
   late Animation<double> _arrowAnimation;
-
-  // ✅ NUEVO: FocusNode para controlar el teclado
   final FocusNode _searchFocusNode = FocusNode();
-
-  // ✅ Cache de clientes para la pestaña de Historial
   Map<String, Client> _clientCache = {};
   bool _isLoadingClients = true;
 
@@ -355,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     );
     _arrowAnimation = Tween(begin: 0.0, end: 0.5).animate(_arrowAnimationController);
     _searchController.addListener(_onSearchChanged);
-    _loadClients(); // ✅ Cargar clientes para el historial
+    _loadClients();
   }
 
   @override
@@ -363,12 +342,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
     _arrowAnimationController.dispose();
-    // ✅ NUEVO: Dispose del FocusNode
     _searchFocusNode.dispose();
     super.dispose();
   }
 
-  // ✅ NUEVO: Método para cerrar el teclado
   void _closeKeyboard() {
     FocusScope.of(context).unfocus();
   }
@@ -378,7 +355,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _isOptionsExpanded = !_isOptionsExpanded;
       if (_isOptionsExpanded) {
         _arrowAnimationController.forward();
-        _closeKeyboard(); // ✅ Cerrar teclado al expandir opciones
+        _closeKeyboard();
       } else {
         _arrowAnimationController.reverse();
       }
@@ -388,10 +365,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void _onSearchChanged() async {
     final searchTerm = _searchController.text.trim();
     if (searchTerm.isNotEmpty) {
-      final clients = await _clientRepository.searchClients(searchTerm);
-      setState(() {
-        _foundClients = clients;
-      });
+      try {
+        final clients = await _clientRepository.searchClients(searchTerm);
+        setState(() {
+          _foundClients = clients;
+        });
+      } catch (e) {
+        setState(() {
+          _foundClients = [];
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al buscar clientes: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } else {
       setState(() {
         _foundClients = [];
@@ -399,31 +388,31 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  // ✅ Cargar clientes para el historial
   Future<void> _loadClients() async {
     try {
       final clientRepository = ClientRepository();
       final clients = await clientRepository.getAllClients();
-      
       setState(() {
         _clientCache = {for (var client in clients) client.id: client};
         _isLoadingClients = false;
       });
     } catch (e) {
-      print('Error loading clients: $e');
       setState(() {
         _isLoadingClients = false;
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cargar clientes: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
-  /// Formatea un ID (UUID o numérico) en 5 dígitos numéricos
   String _formatIdAsFiveDigits(dynamic rawId) {
     if (rawId == null) return '00000';
-    
     final rawString = rawId.toString();
     final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
-    
     if (digitsOnly.isEmpty) {
       return '00000';
     } else if (digitsOnly.length <= 5) {
@@ -435,7 +424,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
-    // ✅ Define TODOS los colores AL PRINCIPIO del build
     final Color kHeaderColor = const Color(0xFF1E88E5);
     final Color kPrimaryButtonColor = const Color(0xFF43A047);
     final Color kTextColor = const Color(0xFF212121);
@@ -444,9 +432,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     final Color kPurpleModule = Colors.purple.shade700;
 
     return DefaultTabController(
-      length: 3, // Inicio, Cobros, Historial
+      length: 3,
       child: GestureDetector(
-        // ✅ NUEVO: GestureDetector en toda la pantalla para cerrar teclado
         onTap: _closeKeyboard,
         behavior: HitTestBehavior.translucent,
         child: Scaffold(
@@ -471,9 +458,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
           body: TabBarView(
             children: [
-              // === Pestaña 1: INICIO (Tu pantalla principal) ===
               GestureDetector(
-                // ✅ NUEVO: GestureDetector adicional para la pestaña de inicio
                 onTap: _closeKeyboard,
                 behavior: HitTestBehavior.translucent,
                 child: SingleChildScrollView(
@@ -481,7 +466,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // ✅ MODIFICADO: Card de bienvenida convertido en botón
                       InkWell(
                         onTap: () {
                           _closeKeyboard();
@@ -520,11 +504,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                           ),
                         ),
                       ),
-
-                      // ✅ CORREGIDO: TextField con FocusNode
                       TextField(
                         controller: _searchController,
-                        focusNode: _searchFocusNode, // ✅ NUEVO: Asignar FocusNode
+                        focusNode: _searchFocusNode,
                         decoration: InputDecoration(
                           labelText: 'Buscar Cliente',
                           hintText: 'Nombre o ID',
@@ -540,7 +522,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 24),
-
                       if (_foundClients.isNotEmpty) ...[
                         Text(
                           'Resultados de la búsqueda',
@@ -564,7 +545,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                                 ),
                                 subtitle: Text('ID: ${client.identification}'),
                                 onTap: () {
-                                  _closeKeyboard(); // ✅ Cerrar teclado antes de navegar
+                                  _closeKeyboard();
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
@@ -578,7 +559,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                         const SizedBox(height: 24),
                       ],
-
                       InkWell(
                         onTap: _toggleOptionsExpanded,
                         borderRadius: BorderRadius.circular(12.0),
@@ -609,7 +589,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       AnimatedCrossFade(
                         duration: const Duration(milliseconds: 300),
                         crossFadeState: _isOptionsExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
@@ -668,7 +647,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               },
                               iconColor: kHeaderColor,
                             ),
-                            // ✅ Corregido: Navegar a Préstamos Activos
                             _buildFeatureCard(
                               context,
                               icon: Icons.history,
@@ -682,7 +660,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                               },
                               iconColor: kPurpleModule,
                             ),
-                            // ❌ ELIMINADO: Tarjeta "Borrar Bases de Datos" fue removida
                           ],
                         ),
                       ),
@@ -690,15 +667,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   ),
                 ),
               ),
-
-              // === Pestaña 2: COBROS (Con sub-pestañas) ===
               GestureDetector(
-                // ✅ NUEVO: También para la pestaña de cobros
                 onTap: _closeKeyboard,
                 child: DefaultTabController(
                   length: 2,
                   child: Scaffold(
-                    // Eliminamos el toolbar vacío que dejaba espacio arriba
                     appBar: AppBar(
                       toolbarHeight: 0,
                       backgroundColor: Colors.transparent,
@@ -715,74 +688,22 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     body: TabBarView(
                       children: [
-                        // --- Cobros Hoy ---
-                        const TodayCollectionScreen(), // ✅ se usa la pantalla real
-
-                        // --- Cobros Semana ---
-                        const WeeklyPaymentsScreen(), // ✅ se usa la pantalla real
+                        const TodayCollectionScreen(),
+                        const WeeklyPaymentsScreen(),
                       ],
                     ),
                   ),
                 ),
               ),
-
-              // === Pestaña 3: HISTORIAL ===
-              // ✅ Filtrar SOLO préstamos pagados
               GestureDetector(
-                // ✅ NUEVO: También para la pestaña de historial
-                onTap: _closeKeyboard,
-                child: Consumer<LoanProvider>(
-                  builder: (context, loanProvider, child) {
-                    if (loanProvider.isLoading || _isLoadingClients) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    if (loanProvider.errorMessage != null) {
-                      return Center(
-                        child: Text('Error: ${loanProvider.errorMessage}'),
-                      );
-                    }
-
-                    // ✅ FILTRO CLAVE: Solo préstamos pagados
-                    final paidLoans = loanProvider.loans
-                        .where((loan) => loan.status == 'pagado')
-                        .toList();
-
-                    if (paidLoans.isEmpty) {
-                      return const Center(
-                        child: Text('No hay préstamos pagados aún.'),
-                      );
-                    }
-
-                    final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
-
-                    return ListView.builder(
-                      itemCount: paidLoans.length,
-                      itemBuilder: (context, index) {
-                        final loan = paidLoans[index];
-                        final client = _clientCache[loan.clientId];
-                        final clientName = client != null ? '${client.name} ${client.lastName}' : 'Cliente no encontrado';
-                        final loanIdDisplay = _formatIdAsFiveDigits(loan.id); // ✅ ID en 5 dígitos
-
-                        return Card(
-                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          child: ListTile(
-                            leading: const Icon(Icons.history),
-                            title: Text('Préstamo #$loanIdDisplay - ${currencyFormatter.format(loan.amount)}'),
-                            subtitle: Text('Cliente: $clientName\nEstado: ${loan.status}'),
-                            trailing: const Icon(Icons.arrow_forward_ios),
-                            onTap: () {
-                              _closeKeyboard(); // ✅ Cerrar teclado antes de navegar
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => LoanDetailScreen(loan: loan)),
-                              );
-                            },
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
+                onTap: () {
+                  _closeKeyboard();
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const PaymentHistoryScreen()),
+                  );
+                },
+                child: const PaymentHistoryScreen(),
               ),
             ],
           ),

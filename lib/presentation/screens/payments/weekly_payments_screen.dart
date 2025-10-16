@@ -19,26 +19,21 @@ class WeeklyPaymentsScreen extends StatefulWidget {
 }
 
 class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
-  // Repositorios
   final ClientRepository _clientRepository = ClientRepository();
   final LoanRepository _loanRepository = LoanRepository();
 
-  // Estado de la pantalla
   List<LoanModel> _weeklyLoans = [];
   final Map<String, String> _clientNamesMap = {};
   bool _isLoading = true;
   String? _loadErrorMessage;
 
-  // Rango de la semana (se inicializa en initState)
   late final DateTime _startOfWeek;
   late final DateTime _endOfWeek;
 
-  // Formateadores
   final NumberFormat _currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
   final DateFormat _dateFormatter = DateFormat('dd/MM/yyyy');
   final DateFormat _weekLabelFormatter = DateFormat('dd/MM');
 
-  // Constantes
   static const int _expectedIdDigits = 5;
 
   @override
@@ -50,10 +45,8 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
 
   void _initializeWeekRange() {
     final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day); // limpia horas
-    // Inicio de semana = lunes
+    final today = DateTime(now.year, now.month, now.day);
     _startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    // Fin exclusivo = siguiente lunes (no incluye ese día)
     _endOfWeek = _startOfWeek.add(const Duration(days: 7));
   }
 
@@ -68,12 +61,12 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
     try {
       final allLoans = await _loanRepository.getAllLoans();
 
-      // 👇 CORRECCIÓN LÓGICA 1 y 2: Incluir paymentDates y estados relevantes
       final weeklyLoans = <LoanModel>[];
       for (final loan in allLoans) {
         if (loan == null) continue;
-        // Excluir solo préstamos no cobrables
-        if (loan.status == 'pagado' || loan.status == 'cancelado') continue;
+        // Excluir préstamos no cobrables
+        final status = (loan.status ?? '').toLowerCase();
+        if (status == 'pagado' || status == 'cancelado') continue;
 
         bool inWeek = false;
 
@@ -97,20 +90,27 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
         }
       }
 
-      // Cargar nombres de clientes en paralelo (pero tolerante a fallos individuales)
+      // Cargar nombres de clientes en paralelo (tolerante a fallos individuales)
       final futures = weeklyLoans.map((loan) async {
         try {
           final client = await _clientRepository.getClientById(loan.clientId);
           final key = loan.clientId?.toString() ?? '';
           final name = '${client?.name ?? ''} ${client?.lastName ?? ''}'.trim();
-          _clientNamesMap[key] = name.isNotEmpty ? name : 'Cliente desconocido';
+          _clientNamesMap[key] = name.isNotEmpty ? name : 'Cliente eliminado';
         } catch (_) {
           final key = loan.clientId?.toString() ?? '';
-          _clientNamesMap[key] = 'Cliente desconocido';
+          _clientNamesMap[key] = 'Cliente eliminado';
         }
       }).toList();
 
       await Future.wait(futures);
+
+      // Ordenar por fecha de vencimiento (más próximo primero)
+      weeklyLoans.sort((a, b) {
+        final aDate = a.dueDate ?? (a.paymentDates?.isNotEmpty == true ? a.paymentDates!.first : DateTime(2100));
+        final bDate = b.dueDate ?? (b.paymentDates?.isNotEmpty == true ? b.paymentDates!.first : DateTime(2100));
+        return aDate.compareTo(bDate);
+      });
 
       if (!mounted) return;
       setState(() {
@@ -119,7 +119,6 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      // 👇 CORRECCIÓN LÓGICA 5: usar variable local
       final errorMessage = 'Error al cargar los préstamos: $e';
       setState(() {
         _isLoading = false;
@@ -131,7 +130,6 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
     }
   }
 
-  // Formatea el ID como 5 dígitos numéricos si es posible. Si no, devuelve fallback.
   String _formatIdAsFiveDigits(dynamic rawId) {
     if (rawId == null) return '00000';
     final rawString = rawId.toString();
@@ -139,12 +137,12 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
     try {
       final idInt = int.parse(rawString);
       if (idInt < 0) return '00000';
-      if (idInt > 99999) return '99999'; // 👈 CORRECCIÓN LÓGICA 3
+      if (idInt > 99999) return '99999';
       return idInt.toString().padLeft(_expectedIdDigits, '0');
     } catch (_) {
       final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
       if (digitsOnly.isEmpty) {
-        return '00000'; // 👈 Solo dígitos válidos; si no, 00000
+        return '00000';
       } else {
         if (digitsOnly.length > _expectedIdDigits) {
           return digitsOnly.substring(digitsOnly.length - _expectedIdDigits);
@@ -204,7 +202,7 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
 
   Widget _buildLoanTile(LoanModel loan) {
     final clientKey = loan.clientId?.toString() ?? '';
-    final clientName = _clientNamesMap[clientKey] ?? 'Cliente desconocido';
+    final clientName = _clientNamesMap[clientKey] ?? 'Cliente eliminado';
 
     final rawId = loan.id;
     final loanIdDisplay = _formatIdAsFiveDigits(rawId);
@@ -220,7 +218,26 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
           backgroundColor: Theme.of(context).primaryColor,
           child: const Icon(Icons.account_balance_wallet, color: Colors.white),
         ),
-        title: Text(clientName, style: const TextStyle(fontWeight: FontWeight.bold)),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                clientName,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: clientName == 'Cliente eliminado' ? Colors.orange : Colors.black,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (clientName == 'Cliente eliminado')
+              const Padding(
+                padding: EdgeInsets.only(left: 6.0),
+                child: Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 20),
+              ),
+          ],
+        ),
         subtitle: Text('Préstamo #$loanIdDisplay • Vence: $dueDateText'),
         trailing: Text(
           _currencyFormatter.format(remaining),
@@ -273,6 +290,13 @@ class _WeeklyPaymentsScreenState extends State<WeeklyPaymentsScreen> {
       appBar: AppBar(
         title: const Text('Cobros de la Semana'),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadWeeklyLoans,
+            tooltip: 'Actualizar',
+          ),
+        ],
       ),
       body: Column(
         children: [

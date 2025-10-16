@@ -1,5 +1,3 @@
-// lib/presentation/screens/payments/today_collection_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -38,7 +36,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Future<void> _loadDailyLoans() async {
     if (!mounted) return;
-    
+
     setState(() {
       _isLoading = true;
       _loadErrorMessage = null;
@@ -47,7 +45,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
     try {
       debugPrint('🔄 Cargando préstamos para: ${_dateFormatter.format(_selectedDate)}');
       final allLoans = await _loanRepository.getAllLoans();
-      
+
       if (allLoans == null || allLoans.isEmpty) {
         if (!mounted) return;
         setState(() {
@@ -63,18 +61,19 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
       for (final loan in allLoans) {
         try {
           if (loan == null) continue;
-          
-          final currentStatus = loan.status?.toLowerCase() ?? '';
+
+          final currentStatus = (loan.status ?? '').toLowerCase().trim();
           if (currentStatus == 'pagado' || currentStatus == 'cancelado') continue;
           if (loan.isFullyPaid) continue;
           if (!loan.hasPaymentDueOn(day)) continue;
 
           final amountDueToday = loan.getAmountDueToday();
           if (amountDueToday <= 0.01) continue;
-          if (loan.remainingBalance <= 0.01) continue;
+          if ((loan.remainingBalance ?? 0.0) <= 0.01) continue;
 
           dailyLoans.add(loan);
         } catch (e) {
+          debugPrint('❌ Error procesando préstamo: $e');
           continue;
         }
       }
@@ -86,7 +85,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         _dailyLoans = dailyLoans;
         _isLoading = false;
       });
-      
+
     } catch (e) {
       debugPrint('❌ ERROR en _loadDailyLoans: $e');
       if (!mounted) return;
@@ -99,7 +98,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Future<void> _loadClientNames(List<LoanModel> loans) async {
     _clientNamesMap.clear();
-    
+
     final uniqueClientIds = <String>{};
     for (final loan in loans) {
       final cid = loan.clientId ?? '';
@@ -115,6 +114,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         _clientNamesMap[cid] = name.isNotEmpty ? name : 'Cliente desconocido';
       } catch (e) {
         _clientNamesMap[cid] = 'Cliente desconocido';
+        debugPrint('❌ Error cargando cliente $cid: $e');
       }
     }
   }
@@ -142,14 +142,14 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Widget _buildHeader(BuildContext context) {
     final dateLabel = _dateFormatter.format(_selectedDate);
-    
+
     final totalAmount = _dailyLoans.fold<double>(0.0, (sum, loan) {
       return sum + loan.getAmountDueToday();
     });
 
-    final residualLoans = _dailyLoans.where((loan) => (loan.remainingBalance ) <= _residualThreshold).length;
+    final residualLoans = _dailyLoans.where((loan) => (loan.remainingBalance ?? 0.0) <= _residualThreshold).length;
     final almostPaidLoans = _dailyLoans.where((loan) {
-      final saldo = loan.remainingBalance ;
+      final saldo = loan.remainingBalance ?? 0.0;
       return saldo > _residualThreshold && saldo <= 1.0;
     }).length;
 
@@ -168,7 +168,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
-                  dateLabel, 
+                  dateLabel,
                   style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
                 ),
               ),
@@ -211,11 +211,13 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Widget _buildLoanTile(LoanModel loan, {Key? key}) {
     final clientName = _clientNamesMap[loan.clientId ?? ''] ?? 'Cliente desconocido';
-    final loanIdDisplay = _getShortLoanId(loan);
+    final loanAmountDisplay = loan.amount != null
+        ? _currencyFormatter.format(loan.amount)
+        : 'Monto desconocido';
     final dueDateText = loan.dueDate != null ? _dateFormatter.format(loan.dueDate!) : 'Fecha desconocida';
-    
+
     final amountDueToday = loan.getAmountDueToday();
-    final saldo = loan.remainingBalance ;
+    final saldo = loan.remainingBalance ?? 0.0;
 
     Color? cardColor;
     IconData statusIcon = Icons.account_balance_wallet;
@@ -260,7 +262,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
           children: [
             Expanded(
               child: Text(
-                clientName, 
+                clientName,
                 style: const TextStyle(fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -286,7 +288,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Préstamo #$loanIdDisplay • Vence: $dueDateText'),
+            Text('Préstamo: $loanAmountDisplay • Vence: $dueDateText'),
             Text(
               'Saldo: ${_currencyFormatter.format(saldo)}',
               style: TextStyle(
@@ -306,50 +308,47 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
               ),
           ],
         ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              _currencyFormatter.format(amountDueToday),
-              style: const TextStyle(
-                fontWeight: FontWeight.bold, 
-                color: Colors.red,
-                fontSize: 16,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              'Cuota hoy',
-              style: TextStyle(
-                fontSize: 10,
-                color: Colors.grey[600],
-              ),
-            ),
-            if (saldo <= _residualThreshold)
-              Text(
-                'Pago final',
-                style: TextStyle(
-                  fontSize: 10,
-                  color: Colors.orange[800],
-                  fontWeight: FontWeight.w500,
+        trailing: SizedBox(
+          width: 80,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  _currencyFormatter.format(amountDueToday),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red,
+                    fontSize: 14,
+                  ),
                 ),
               ),
-          ],
+              const SizedBox(height: 2),
+              Text(
+                'Cuota hoy',
+                style: TextStyle(
+                  fontSize: 10,
+                  color: Colors.grey,
+                ),
+              ),
+              if (saldo <= _residualThreshold)
+                Text(
+                  'Pago final',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: Colors.orange[800],
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
         ),
         onTap: () => _handlePayment(loan),
       ),
     );
-  }
-
-  String _getShortLoanId(LoanModel loan) {
-    final id = loan.id ?? '';
-    if (id.isEmpty) return '00000';
-
-    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) return '00000';
-    if (digits.length <= 4) return digits.padLeft(4, '0');
-    return digits.substring(digits.length - 4);
   }
 
   Widget _buildBody() {
@@ -365,7 +364,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         ),
       );
     }
-    
+
     if (_loadErrorMessage != null) {
       return Center(
         child: Padding(
@@ -376,13 +375,13 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
               const Icon(Icons.error_outline, color: Colors.red, size: 50),
               const SizedBox(height: 12),
               Text(
-                _loadErrorMessage!, 
+                _loadErrorMessage!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.red),
               ),
               const SizedBox(height: 12),
               ElevatedButton(
-                onPressed: _loadDailyLoans, 
+                onPressed: _loadDailyLoans,
                 child: const Text('Reintentar')
               ),
             ],
@@ -390,7 +389,7 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
         ),
       );
     }
-    
+
     if (_dailyLoans.isEmpty) {
       return const Center(
         child: Column(
@@ -413,16 +412,22 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
       );
     }
 
-    return ReorderableListView(
-      onReorder: _handleReorder,
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      children: [
-        for (int index = 0; index < _dailyLoans.length; index++)
-          _buildLoanTile(
-            _dailyLoans[index],
-            key: Key('loan_${_dailyLoans[index].id}_$index'),
-          ),
-      ],
+    return Expanded(
+      child: SingleChildScrollView(
+        child: ReorderableListView(
+          onReorder: _handleReorder,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          children: [
+            for (int index = 0; index < _dailyLoans.length; index++)
+              _buildLoanTile(
+                _dailyLoans[index],
+                key: Key('loan_${_dailyLoans[index].id}_$index'),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -432,7 +437,6 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
       appBar: AppBar(
         title: const Text('Cobros de Hoy'),
         centerTitle: true,
-        backgroundColor: const Color(0xFF1E88E5),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
@@ -466,17 +470,18 @@ class _TodayCollectionScreenState extends State<TodayCollectionScreen> {
 
   Widget _buildSummaryItem(String title, String value, IconData icon, [Color? iconColor]) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 28, color: iconColor ?? Theme.of(context).primaryColor),
         const SizedBox(height: 6),
         Text(
-          title, 
+          title,
           style: Theme.of(context).textTheme.bodyLarge?.copyWith(fontSize: 12),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 4),
         Text(
-          value, 
+          value,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.bold,
             fontSize: 16,

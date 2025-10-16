@@ -1,6 +1,6 @@
-
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:hive/hive.dart';
 
 class PinSetupScreen extends StatefulWidget {
   const PinSetupScreen({super.key});
@@ -12,27 +12,56 @@ class PinSetupScreen extends StatefulWidget {
 class _PinSetupScreenState extends State<PinSetupScreen> {
   final TextEditingController _pinController = TextEditingController();
 
-  // 3.1.3 Botones: Lógica para guardar el PIN
+  // Limpia todos los datos de SharedPreferences y Hive
+  Future<void> _clearAllAppData() async {
+    // Borra SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.clear();
+
+    // Lista manual de cajas Hive que usas en tu app
+    final boxNames = [
+      'loans',
+      'clients',
+      'payments',
+      // agrega aquí los nombres de todas tus cajas Hive
+    ];
+
+    for (var boxName in boxNames) {
+      final box = await Hive.openBox(boxName);
+      await box.clear();
+    }
+  }
+
   Future<void> _setPin() async {
-    if (_pinController.text.length == 4) {
+    final pin = _pinController.text.trim();
+    if (pin.length == 4 && RegExp(r'^\d{4}$').hasMatch(pin)) {
+      await _clearAllAppData();
+
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_pin', _pinController.text);
+      await prefs.setString('user_pin', pin);
+
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('PIN configurado con éxito')),
+        const SnackBar(content: Text('PIN configurado y datos restaurados')),
       );
-      // Navegamos a la pantalla de la lista de préstamos.
       Navigator.of(context).pushReplacementNamed('/home');
     } else {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El PIN debe tener 4 dígitos')),
+        const SnackBar(content: Text('El PIN debe tener exactamente 4 dígitos numéricos')),
       );
     }
   }
 
   @override
+  void dispose() {
+    _pinController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // 3.1.5 Elementos fijos: Encabezado superior
       appBar: AppBar(
         title: const Text('Configurar PIN'),
         centerTitle: true,
@@ -43,14 +72,12 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // 3.1.2 Tipografía: Texto base con estilo
             const Text(
-              'Establece un PIN de 4 dígitos para tu aplicación.',
+              'Establece un PIN de 4 dígitos para tu aplicación.\n\nAl guardar, se eliminarán TODOS los datos de la app.',
               style: TextStyle(fontSize: 16),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
-            // 3.1.3 Campos de formulario estandarizado
             TextField(
               controller: _pinController,
               keyboardType: TextInputType.number,
@@ -72,10 +99,12 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            // 3.1.3 Botón principal (CTA)
             ElevatedButton(
               onPressed: _setPin,
-              child: const Text('Guardar PIN', style: TextStyle(fontSize: 14)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+              ),
+              child: const Text('Guardar PIN y borrar datos', style: TextStyle(fontSize: 14)),
             ),
           ],
         ),

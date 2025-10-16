@@ -1,5 +1,3 @@
-// lib/presentation/screens/payments/payment_history_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -23,6 +21,9 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
   bool _isLoading = true;
   String? _loadErrorMessage;
 
+  static const Color _primaryBlue = Color(0xFF1E88E5);
+  static const Color _secondaryGreen = Color(0xFF43A047);
+
   final NumberFormat _currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
   final DateFormat _dateFormatter = DateFormat('dd/MM/yyyy');
 
@@ -32,18 +33,15 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
     _loadPaidLoans();
   }
 
-  String _formatIdAsFiveDigits(dynamic rawId) {
-    if (rawId == null) return '00000';
-    
-    final rawString = rawId.toString();
-    final digitsOnly = rawString.replaceAll(RegExp(r'[^0-9]'), '');
-    
-    if (digitsOnly.isEmpty) {
-      return '00000';
-    } else if (digitsOnly.length <= 5) {
-      return digitsOnly.padLeft(5, '0');
+  String _getShortLoanId(LoanModel loan) {
+    final id = loan.id ?? '';
+    if (id.isEmpty) return '00000';
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) return '00000';
+    if (digits.length <= 5) {
+      return digits.padLeft(5, '0');
     } else {
-      return digitsOnly.substring(digitsOnly.length - 5);
+      return digits.substring(digits.length - 5);
     }
   }
 
@@ -57,180 +55,210 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
 
     try {
       final allLoans = await _loanRepository.getAllLoans();
-      if (allLoans == null) {
-        throw Exception('Respuesta nula de la base de datos');
+      if (allLoans == null || allLoans.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _isLoading = false;
+          _paidLoans = [];
+        });
+        return;
       }
 
-      // ✅ DEBUG: Ver qué préstamos estamos obteniendo
-      print('DEBUG: Total de préstamos obtenidos: ${allLoans.length}');
-      for (final loan in allLoans) {
-        print('DEBUG - Préstamo: id=${loan.id}, clientId=${loan.clientId}, status=${loan.status}');
-      }
-
-      // Filtrar préstamos pagados
+      // Manejo robusto de nulos y estado
       final paidLoans = allLoans
-          .where((loan) => 
-              loan.status != null && 
-              loan.status!.toLowerCase() == 'pagado')
+          .where((loan) =>
+              (loan.status ?? '').toLowerCase().trim() == 'pagado' ||
+              (loan.remainingBalance ?? 0.0) <= 0.01)
           .toList();
 
-      print('DEBUG: Préstamos pagados encontrados: ${paidLoans.length}');
+      // ORDENAR por fecha de último pago (más reciente primero)
+      paidLoans.sort((a, b) {
+        DateTime aDate;
+        DateTime bDate;
 
-      // ✅ CARGAR NOMBRES DE CLIENTES - MÉTODO MEJORADO
+        if (a.payments != null && a.payments!.isNotEmpty) {
+          aDate = a.payments!.reduce((x, y) => x.date.isAfter(y.date) ? x : y).date;
+        } else if (a.dueDate != null) {
+          aDate = a.dueDate!;
+        } else {
+          aDate = a.startDate ?? DateTime(2000);
+        }
+
+        if (b.payments != null && b.payments!.isNotEmpty) {
+          bDate = b.payments!.reduce((x, y) => x.date.isAfter(y.date) ? x : y).date;
+        } else if (b.dueDate != null) {
+          bDate = b.dueDate!;
+        } else {
+          bDate = b.startDate ?? DateTime(2000);
+        }
+
+        // Más recientes primero
+        return bDate.compareTo(aDate);
+      });
+
       await _loadClientNames(paidLoans);
 
-      if (mounted) {
-        setState(() {
-          _paidLoans = paidLoans;
-          _isLoading = false;
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _paidLoans = paidLoans;
+        _isLoading = false;
+      });
+
+      debugPrint('🎯 RESUMEN HISTORIAL: ${paidLoans.length} préstamos pagados');
     } catch (e) {
-      print('ERROR en _loadPaidLoans: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-          _loadErrorMessage = 'Error al cargar historial: ${e.toString()}';
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadErrorMessage = 'Error al cargar historial: $e';
+      });
+      debugPrint('❌ ERROR cargando historial: $e');
     }
   }
 
-  // ✅ NUEVO MÉTODO MEJORADO para cargar nombres de clientes
   Future<void> _loadClientNames(List<LoanModel> loans) async {
+    final clientIds = <String>{};
     for (final loan in loans) {
-      final clientId = loan.clientId?.toString().trim();
-      
-      if (clientId == null || clientId.isEmpty) {
-        _clientNamesMap[loan.id] = 'Cliente sin ID';
-        continue;
-      }
+      final cid = loan.clientId?.toString().trim();
+      if (cid != null && cid.isNotEmpty) clientIds.add(cid);
+    }
 
+    if (clientIds.isEmpty) return;
+
+    for (final clientId in clientIds) {
       try {
-        print('DEBUG: Buscando cliente con ID: $clientId');
         final client = await _clientRepository.getClientById(clientId);
-        
         if (client != null) {
           final name = '${client.name ?? ''} ${client.lastName ?? ''}'.trim();
-          _clientNamesMap[loan.id] = name.isNotEmpty ? name : 'Nombre no disponible';
-          print('DEBUG: Cliente encontrado - $name');
+          _clientNamesMap[clientId] = name.isNotEmpty ? name : 'Cliente desconocido';
         } else {
-          _clientNamesMap[loan.id] = 'Cliente no encontrado (ID: $clientId)';
-          print('DEBUG: Cliente NO encontrado para ID: $clientId');
+          _clientNamesMap[clientId] = 'Cliente no encontrado';
         }
       } catch (e) {
-        print('ERROR buscando cliente $clientId: $e');
-        _clientNamesMap[loan.id] = 'Error al cargar cliente';
-      }
-    }
-
-    // ✅ INTENTAR ALTERNATIVA: Buscar por nombre si está disponible en el loan
-    await _tryAlternativeClientLookup(loans);
-  }
-
-  // ✅ MÉTODO ALTERNATIVO: Usar clientName del préstamo si está disponible
-  Future<void> _tryAlternativeClientLookup(List<LoanModel> loans) async {
-    for (final loan in loans) {
-      // Si ya tenemos un nombre, no hacer nada
-      if (_clientNamesMap[loan.id] != null && 
-          !_clientNamesMap[loan.id]!.contains('no encontrado') &&
-          !_clientNamesMap[loan.id]!.contains('Error')) {
-        continue;
-      }
-
-      // Intentar usar clientName del préstamo si está disponible
-      if (loan.clientName != null && loan.clientName!.isNotEmpty) {
-        _clientNamesMap[loan.id] = loan.clientName!;
-        print('DEBUG: Usando clientName del préstamo: ${loan.clientName}');
+        _clientNamesMap[clientId] = 'Error al cargar';
       }
     }
   }
 
   Widget _buildLoanTile(LoanModel loan) {
-    final clientName = _clientNamesMap[loan.id] ?? 'Cargando...';
-    final loanIdDisplay = _formatIdAsFiveDigits(loan.id);
-    
-    // Obtener fecha del último pago
+    final clientKey = loan.clientId?.toString() ?? '';
+    String clientName = _clientNamesMap[clientKey] ?? 'Cliente no disponible';
+
+    // Mejora: Si el cliente no existe, muestra un mensaje más amigable y un ícono de advertencia
+    bool clienteDesconocido = clientName == 'Cliente no encontrado' || clientName == 'Cliente desconocido' || clientName == 'Cliente no disponible';
+    if (clienteDesconocido) {
+      clientName = 'Cliente eliminado';
+    }
+
+    // Mostrar monto del préstamo en vez de ID si lo prefieres
+    final loanAmountDisplay = loan.amount != null
+        ? _currencyFormatter.format(loan.amount)
+        : 'Monto desconocido';
+
     DateTime? lastPaymentDate;
     if (loan.payments != null && loan.payments!.isNotEmpty) {
       lastPaymentDate = loan.payments!.reduce((a, b) => a.date.isAfter(b.date) ? a : b).date;
     }
-    
-    final paidDateText = lastPaymentDate != null 
-        ? _dateFormatter.format(lastPaymentDate) 
-        : loan.dueDate != null 
-            ? _dateFormatter.format(loan.dueDate!) 
-            : 'Fecha no registrada';
 
-    final totalPaid = loan.totalAmountToPay ?? loan.amount;
+    // Si no hay pagos ni dueDate, muestra la fecha de creación como último recurso
+    final paidDateText = lastPaymentDate != null
+        ? _dateFormatter.format(lastPaymentDate)
+        : loan.dueDate != null
+            ? _dateFormatter.format(loan.dueDate!)
+            : loan.startDate != null
+                ? _dateFormatter.format(loan.startDate!)
+                : 'Fecha no registrada';
+
+    final totalPaid = loan.totalAmountToPay ?? loan.amount ?? 0.0;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      elevation: 2,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        leading: const CircleAvatar(
-          backgroundColor: Colors.green,
-          child: Icon(Icons.check, color: Colors.white),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Préstamo #$loanIdDisplay',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            // ✅ MOSTRAR EL CLIENT ID PARA DEBUG
-            if (loan.clientId != null)
-              Text(
-                'ClientID: ${loan.clientId}',
-                style: const TextStyle(fontSize: 10, color: Colors.grey),
+        leading: clienteDesconocido
+            ? const Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 32)
+            : Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: _primaryBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(22),
+                ),
+                child: const Icon(Icons.check_circle, color: _primaryBlue, size: 22),
               ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                clientName,
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: clienteDesconocido ? Colors.orange : Colors.black,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: _secondaryGreen.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _secondaryGreen.withOpacity(0.3)),
+              ),
+              child: const Text(
+                'PAGADO',
+                style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: _secondaryGreen),
+              ),
+            ),
           ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            const SizedBox(height: 4),
+            // Muestra el monto del préstamo y la fecha de pago
+            Text('Préstamo: $loanAmountDisplay • Pagado: $paidDateText'),
             Text(
-              clientName,
-              style: TextStyle(
-                color: clientName.contains('no encontrado') || 
-                       clientName.contains('Error') || 
-                       clientName.contains('sin ID')
-                    ? Colors.red
-                    : Colors.black,
-                fontWeight: FontWeight.w500,
-              ),
+              'Monto: ${_currencyFormatter.format(totalPaid)}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
             ),
-            Text('Pagado: $paidDateText'),
           ],
         ),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
               _currencyFormatter.format(totalPaid),
-              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.green),
+              style: const TextStyle(fontWeight: FontWeight.bold, color: _primaryBlue, fontSize: 16),
             ),
             const Text(
               'Pagado',
-              style: TextStyle(fontSize: 12, color: Colors.green),
+              style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
           ],
         ),
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => LoanDetailScreen(loan: loan)),
-          );
+          // Verifica que el préstamo aún existe antes de navegar
+          if (loan.id != null && loan.id.isNotEmpty) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => LoanDetailScreen(loan: loan)),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('No se puede mostrar el detalle de este préstamo.')),
+            );
+          }
         },
       ),
     );
   }
 
   Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
 
     if (_loadErrorMessage != null) {
       return Center(
@@ -239,15 +267,13 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error, color: Colors.red, size: 50),
+              const Icon(Icons.error_outline, color: Colors.red, size: 50),
               const SizedBox(height: 12),
-              Text(_loadErrorMessage!, 
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red),
-              ),
+              Text(_loadErrorMessage!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
               ElevatedButton(
-                onPressed: _loadPaidLoans, 
+                onPressed: _loadPaidLoans,
+                style: ElevatedButton.styleFrom(backgroundColor: _primaryBlue),
                 child: const Text('Reintentar'),
               ),
             ],
@@ -269,46 +295,10 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       );
     }
 
-    return Column(
-      children: [
-        // ✅ RESUMEN
-        Card(
-          margin: const EdgeInsets.all(16),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Column(
-                  children: [
-                    Text(
-                      _paidLoans.length.toString(),
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.green),
-                    ),
-                    const Text('Préstamos pagados'),
-                  ],
-                ),
-                Column(
-                  children: [
-                    Text(
-                      _currencyFormatter.format(_paidLoans.fold(0.0, (sum, loan) => sum + (loan.totalAmountToPay ?? loan.amount))),
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const Text('Total pagado'),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-        // ✅ LISTA
-        Expanded(
-          child: ListView.builder(
-            itemCount: _paidLoans.length,
-            itemBuilder: (context, index) => _buildLoanTile(_paidLoans[index]),
-          ),
-        ),
-      ],
+    return ListView.builder(
+      padding: const EdgeInsets.only(top: 16.0),
+      itemCount: _paidLoans.length,
+      itemBuilder: (context, index) => _buildLoanTile(_paidLoans[index]),
     );
   }
 
@@ -318,15 +308,6 @@ class _PaymentHistoryScreenState extends State<PaymentHistoryScreen> {
       appBar: AppBar(
         title: const Text('Historial de Préstamos Pagados'),
         centerTitle: true,
-        backgroundColor: const Color(0xFF4CAF50),
-        actions: [
-          // ✅ BOTÓN DE DEBUG
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadPaidLoans,
-            tooltip: 'Recargar y mostrar debug',
-          ),
-        ],
       ),
       body: _buildBody(),
     );

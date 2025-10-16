@@ -3,6 +3,8 @@
 //#  Muestra pagos realizados en la fecha          #
 //#  seleccionada (por defecto hoy).               #
 //#  Incluye resumen y lista detallada.           #
+//#  + ID corta y legible para préstamos           #
+//#  + Manejo mejorado de clientes desconocidos    #
 //#################################################
 
 import 'package:flutter/material.dart';
@@ -35,6 +37,10 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
 
   double _totalAmountPaid = 0.0;
 
+  // ✅ AÑADIDO: Formateador de moneda y fecha
+  final NumberFormat _currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+  final DateFormat _dateFormatter = DateFormat('dd/MM/yyyy');
+
   @override
   void initState() {
     super.initState();
@@ -45,30 +51,40 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
     setState(() {
       _isLoading = true;
       _dailyPayments = [];
-      _clientsMap = {};
-      _loansMap = {};
+      _clientsMap.clear();
+      _loansMap.clear();
       _totalAmountPaid = 0.0;
     });
 
-    final payments = await _paymentRepository.getPaymentsByDate(_selectedDate);
+    try {
+      final payments = await _paymentRepository.getPaymentsByDate(_selectedDate);
 
-    final futures = payments.map((payment) async {
-      final loan = await _loanRepository.getLoanById(payment.loanId);
-      _loansMap[payment.loanId] = loan;
+      final futures = payments.map((payment) async {
+        // Cargar préstamo asociado al pago
+        final loan = await _loanRepository.getLoanById(payment.loanId);
+        _loansMap[payment.loanId] = loan;
 
-      if (loan != null) {
-        final client = await _clientRepository.getClientById(loan.clientId);
-        _clientsMap[loan.clientId] = client;
-      }
-    });
+        // Si se encontró el préstamo, cargar el cliente asociado
+        if (loan != null) {
+          final client = await _clientRepository.getClientById(loan.clientId);
+          _clientsMap[loan.clientId] = client;
+        }
+      });
 
-    await Future.wait(futures);
+      await Future.wait(futures);
 
-    setState(() {
-      _dailyPayments = payments;
-      _totalAmountPaid = payments.fold(0.0, (sum, item) => sum + item.amount);
-      _isLoading = false;
-    });
+      setState(() {
+        _dailyPayments = payments;
+        _totalAmountPaid = payments.fold(0.0, (sum, item) => sum + item.amount);
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+        // Manejar error de carga
+      });
+      debugPrint('Error cargando pagos diarios: $e');
+    }
   }
 
   // ✅ CORREGIDO: Usando Builder para obtener el context correcto
@@ -87,10 +103,26 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
     }
   }
 
+  // ✅ NUEVO: Generar ID corta y legible para préstamos
+  String _getShortLoanId(LoanModel loan) {
+    final id = loan.id;
+    if (id.isEmpty) return '00000';
+    
+    // Extraer solo los números del ID
+    final digits = id.replaceAll(RegExp(r'[^0-9]'), '');
+    
+    if (digits.isEmpty) return '00000';
+    
+    // Usar los últimos 4-5 dígitos para una ID más corta
+    if (digits.length <= 4) {
+      return digits.padLeft(4, '0');
+    } else {
+      return digits.substring(digits.length - 4);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pagos del Día'),
@@ -115,7 +147,7 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                               const Icon(Icons.calendar_today, color: Colors.blue),
                               const SizedBox(width: 8),
                               Text(
-                                DateFormat('dd/MM/yyyy').format(_selectedDate),
+                                _dateFormatter.format(_selectedDate),
                                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                             ],
@@ -135,7 +167,7 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                       children: [
                         _buildSummaryItem(
                           'Total Recaudado',
-                          currencyFormatter.format(_totalAmountPaid),
+                          _currencyFormatter.format(_totalAmountPaid),
                           Icons.attach_money,
                         ),
                         _buildSummaryItem(
@@ -161,20 +193,44 @@ class _DailyPaymentsScreenState extends State<DailyPaymentsScreen> {
                           final payment = _dailyPayments[index];
                           final loan = _loansMap[payment.loanId];
                           final client = _clientsMap[loan?.clientId];
-                          
-                          final isFullPayment = loan != null && payment.amount == loan.calculatedPaymentAmount;
-                          final leadingIcon = isFullPayment ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.circle_outlined, color: Colors.orange);
+
+                          // ✅ MEJORADO: Determinar icono y estado del pago
+                          final isFullPayment = loan != null &&
+                              loan.calculatedPaymentAmount != null &&
+                              (payment.amount - loan.calculatedPaymentAmount!).abs() <= 0.01;
+                          final leadingIcon = isFullPayment 
+                              ? const Icon(Icons.check_circle, color: Colors.green)
+                              : const Icon(Icons.circle_outlined, color: Colors.orange);
+
+                          // ✅ MEJORADO: Mostrar ID corta y legible del préstamo
+                          final loanIdDisplay = loan != null ? '#${_getShortLoanId(loan)}' : '#Desconocido';
+
+                          // ✅ MEJORADO: Mostrar nombre del cliente o mensaje de no encontrado
+                          final clientNameDisplay = client != null 
+                              ? '${client.name} ${client.lastName}'.trim() 
+                              : (loan?.clientName?.isNotEmpty == true 
+                                  ? loan!.clientName! 
+                                  : 'Cliente no encontrado');
+
+                          // NUEVO: Mostrar monto del préstamo (si está disponible)
+                          final loanAmountDisplay = loan != null
+                              ? _currencyFormatter.format(loan.amount)
+                              : 'Monto desconocido';
 
                           return Card(
                             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                             child: ListTile(
                               leading: leadingIcon,
                               title: Text(
-                                'Monto: ${currencyFormatter.format(payment.amount)}',
+                                'Monto: ${_currencyFormatter.format(payment.amount)}',
                                 style: const TextStyle(fontWeight: FontWeight.bold),
                               ),
-                              subtitle: Text(
-                                'Cliente: ${client?.name ?? 'Desconocido'} - Préstamo: #${loan?.loanNumber ?? 'Desconocido'}',
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Cliente: $clientNameDisplay'),
+                                  Text('Préstamo: $loanAmountDisplay'), // <--- Aquí se muestra el monto del préstamo
+                                ],
                               ),
                               trailing: Text(
                                 DateFormat('hh:mm a').format(payment.date),

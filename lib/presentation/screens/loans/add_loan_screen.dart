@@ -1,4 +1,3 @@
-// lib/presentation/screens/loans/add_loan_screen.dart
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:loan_app/data/models/loan_model.dart';
@@ -89,7 +88,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
             break;
           case 'Mensual':
           default:
-            // sum months safely
             int year = _startDate.year;
             int month = _startDate.month + term;
             year += (month - 1) ~/ 12;
@@ -126,7 +124,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     });
   }
 
-  /// Genera fechas y montos (trabaja en centavos internamente para evitar residuos flotantes).
   Map<String, dynamic> _generateSchedule({
     required double amount,
     required double annualRatePercent,
@@ -140,7 +137,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
       return {'dates': dates, 'installments': installments, 'total': 0.0};
     }
 
-    // periodo y tasa por periodo
     double periodRate;
     Duration periodDuration;
 
@@ -164,7 +160,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         break;
     }
 
-    // convertimos al nivel de centavos (int)
     final int principalCents = (amount * 100).round();
     final int principalPerPaymentCents = principalCents ~/ term;
     final int principalRemainder = principalCents - (principalPerPaymentCents * term);
@@ -173,7 +168,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     int totalToPayCents = 0;
 
     for (int i = 0; i < term; i++) {
-      // calcular fecha
       DateTime date;
       if (frequency == 'Mensual') {
         int year = startDate.year;
@@ -190,37 +184,51 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
       final normalizedDate = _normalizeDate(date);
       dates.add(normalizedDate);
 
-      // interés sobre saldo actual (en centavos)
       final double interestRaw = remainingCents * periodRate;
       final int interestCents = interestRaw.round();
 
-      // principal para esta cuota (distribuir remainder en la última cuota)
       final int principalPortionCents = principalPerPaymentCents + (i == term - 1 ? principalRemainder : 0);
 
       final int paymentCents = principalPortionCents + interestCents;
 
-      // actualizar contadores
       totalToPayCents += paymentCents;
       remainingCents = (remainingCents - principalPortionCents).clamp(0, 1 << 62);
 
-      // guardar cuota como double (pesos)
       installments.add(paymentCents / 100.0);
     }
 
-    // total en pesos
     final double totalToPay = totalToPayCents / 100.0;
 
     return {'dates': dates, 'installments': installments, 'total': totalToPay};
+  }
+
+  bool _isValidColombianCell(String? value) {
+    if (value == null) return false;
+    final cleaned = value.replaceAll(RegExp(r'\D'), '');
+    return RegExp(r'^3\d{9}$').hasMatch(cleaned);
   }
 
   Future<void> _saveLoan() async {
     if (_formKey.currentState!.validate()) {
       _formKey.currentState!.save();
 
+      // Validación de celular colombiano
+      if (!_isValidColombianCell(_phoneNumberController.text)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El número de teléfono debe ser un celular colombiano válido (10 dígitos, inicia en 3).')),
+        );
+        return;
+      }
+      if (_whatsappNumberController.text.isNotEmpty && !_isValidColombianCell(_whatsappNumberController.text)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('El número de WhatsApp debe ser un celular colombiano válido (10 dígitos, inicia en 3).')),
+        );
+        return;
+      }
+
       try {
         final loanProvider = Provider.of<LoanProvider>(context, listen: false);
 
-        // 1. Crear cliente
         final newClient = Client(
           id: const Uuid().v4(),
           name: _clientNameController.text.trim(),
@@ -230,10 +238,8 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
           whatsapp: _whatsappNumberController.text.trim(),
         );
 
-        // 2. Guardar cliente
         await loanProvider.addClient(newClient);
 
-        // 3. Parsear monto y tasa
         final NumberFormat currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
         final String cleanedAmountText = _amountController.text.replaceAll('\$', '').trim();
         final double parsedAmount = currencyFormatter.parse(cleanedAmountText).toDouble();
@@ -241,7 +247,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         final double annualInterestPercent = double.parse(_interestRateController.text);
         final int term = int.parse(_termValueController.text);
 
-        // 4. Generar schedule (fechas y montos) - tu función existente devuelve doubles
         final schedule = _generateSchedule(
           amount: parsedAmount,
           annualRatePercent: annualInterestPercent,
@@ -250,34 +255,23 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
           frequency: _selectedPaymentFrequency,
         );
 
-        // Convertimos el schedule a centavos para coherencia
         final List<DateTime> paymentDates = (schedule['dates'] as List<DateTime>)
             .map((d) => _normalizeDate(d))
             .toList();
 
-        // Los importes por cuota en double (ej: 1234.56)
         final List<double> installmentsD = (schedule['installments'] as List).map((e) => (e as num).toDouble()).toList();
-
-        // Convertir cada cuota a centavos redondeando
         final List<int> installmentsCents = installmentsD.map((d) => (d * 100).round()).toList();
-
-        // totalToPay en centavos: preferimos sumar desde installmentsCents para evitar drift
         final int totalToPayCents = installmentsCents.fold<int>(0, (s, c) => s + c);
-
-        // cuota representativa (la primera) en centavos
         final int firstInstallmentCents = installmentsCents.isNotEmpty ? installmentsCents.first : 0;
-
-        // convertir de vuelta a double con 2 decimales
         final double totalToPay = (totalToPayCents / 100.0);
         final double calculatedPaymentAmount = (firstInstallmentCents / 100.0);
 
-        // 5. Crear el LoanModel e incluir paymentDates y cálculos
         final newLoan = LoanModel(
           id: const Uuid().v4(),
           clientId: newClient.id,
           clientName: newClient.name,
           amount: parsedAmount,
-          interestRate: annualInterestPercent / 100, // guardamos en decimal (si tu modelo espera decimal)
+          interestRate: annualInterestPercent / 100,
           termValue: term,
           startDate: _normalizeDate(_startDate),
           dueDate: _normalizeDate(_dueDate),
@@ -289,14 +283,12 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
           paymentDates: paymentDates,
           calculatedPaymentAmount: double.parse((calculatedPaymentAmount).toStringAsFixed(2)),
           totalAmountToPay: double.parse((totalToPay).toStringAsFixed(2)),
-          remainingBalance: double.parse((totalToPay).toStringAsFixed(2)), // IMPORTANT: inicializamos el remaining con TOTAL a pagar
+          remainingBalance: double.parse((totalToPay).toStringAsFixed(2)),
           totalPaid: 0.0,
         );
 
-        // 6. Guardar préstamo
         await loanProvider.addLoan(newLoan);
 
-        // 7. Confirmación y volver
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Préstamo y cliente añadidos con éxito!')),
         );
@@ -536,20 +528,32 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                 controller: _whatsappNumberController,
                 decoration: const InputDecoration(
                   labelText: 'Número de WhatsApp',
-                  hintText: 'Ej: +57 3XX YYY ZZZZ',
+                  hintText: 'Ej: 3XXYYYZZZZ',
                   prefixIcon: Icon(FontAwesomeIcons.whatsapp),
                 ),
                 keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (value != null && value.isNotEmpty && !_isValidColombianCell(value)) {
+                    return 'Debe ser un celular colombiano válido (10 dígitos, inicia en 3)';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _phoneNumberController,
                 decoration: const InputDecoration(
                   labelText: 'Número de Teléfono',
-                  hintText: 'Ej: +57 3XX YYY ZZZZ',
+                  hintText: 'Ej: 3XXYYYZZZZ',
                   prefixIcon: Icon(Icons.phone),
                 ),
                 keyboardType: TextInputType.phone,
+                validator: (value) {
+                  if (!_isValidColombianCell(value)) {
+                    return 'Debe ser un celular colombiano válido (10 dígitos, inicia en 3)';
+                  }
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               Builder(

@@ -13,15 +13,13 @@ class PinValidationScreen extends StatefulWidget {
 
 class _PinValidationScreenState extends State<PinValidationScreen> {
   final TextEditingController _pinController = TextEditingController();
-  
-  // Variables de Estado
+
   bool _loading = true;
-  bool _hasPin = false; // Indica si ya hay un PIN guardado (Validación vs Creación)
+  bool _hasPin = false;
   bool _obscure = true;
   String? _storedPin;
   String? _error;
-  
-  // Constantes de Hive
+
   static const String _boxName = 'app_settings';
   static const String _pinKey = 'pinCode';
 
@@ -31,18 +29,11 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
     _initHiveAndLoadPin();
   }
 
-  // --- LÓGICA DE HIVE Y CARGA INICIAL ---
   Future<void> _initHiveAndLoadPin() async {
     try {
-      // 1. Abre la caja de settings (el main ya la abre, pero es un buen fallback)
       final box = await Hive.openBox(_boxName);
-      
-      // 2. Lee el valor del PIN
       final value = box.get(_pinKey);
-      
-      // 3. Verifica si es una cadena válida y no está vacía
       final isPinValid = value is String && value.trim().isNotEmpty;
-
       if (mounted) {
         setState(() {
           _storedPin = isPinValid ? value : null;
@@ -50,7 +41,6 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
         });
       }
     } catch (e) {
-      // Manejo de errores: si falla la lectura, asumimos que no hay PIN
       debugPrint('Error leyendo PIN desde Hive: $e');
       if (mounted) {
         setState(() {
@@ -59,7 +49,6 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
         });
       }
     } finally {
-      // 4. Finaliza la carga
       if (mounted) {
         setState(() {
           _loading = false;
@@ -67,10 +56,7 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       }
     }
   }
-  
-  // --- MÉTODOS CRUD DEL PIN ---
-  
-  // Abrir la caja de forma segura (se usa en save/delete)
+
   Box get _settingsBox => Hive.box(_boxName);
 
   Future<void> _savePin(String pin) async {
@@ -85,7 +71,11 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
     _hasPin = false;
   }
 
-  // --- LÓGICA DE VALIDACIÓN Y NAVEGACIÓN ---
+  // --- Mejoras de validación y seguridad ---
+  bool _isPinInsecure(String pin) {
+    const insecurePins = {'0000', '1234', '1111', '2222', '4321', '1212', '9999', '5555', '1004', '2000'};
+    return insecurePins.contains(pin);
+  }
 
   void _onValidatePressed() {
     final input = _pinController.text.trim();
@@ -96,18 +86,20 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       return;
     }
 
-    // 1. FLUJO DE CREACIÓN DE PIN (NO HAY PIN GUARDADO)
+    // FLUJO DE CREACIÓN DE PIN
     if (!_hasPin) {
-      if (input.length < 4) {
-        setState(() => _error = 'El PIN debe tener al menos 4 dígitos.');
+      if (input.length != 4 || !RegExp(r'^\d{4}$').hasMatch(input)) {
+        setState(() => _error = 'El PIN debe tener exactamente 4 dígitos numéricos.');
         return;
       }
-      
+      if (_isPinInsecure(input)) {
+        setState(() => _error = 'El PIN elegido es demasiado fácil. Elige uno más seguro.');
+        return;
+      }
       _savePin(input).then((_) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN guardado correctamente')));
           _pinController.clear();
-          // Navegar a home (reemplaza la pantalla de PIN)
           Navigator.pushReplacementNamed(context, '/home');
         }
       }).catchError((e) {
@@ -116,7 +108,7 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       return;
     }
 
-    // 2. FLUJO DE VALIDACIÓN DE PIN (YA HAY PIN GUARDADO)
+    // FLUJO DE VALIDACIÓN DE PIN
     if (_storedPin == input) {
       Navigator.pushReplacementNamed(context, '/home');
     } else {
@@ -126,8 +118,6 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
     }
   }
 
-  // --- RESET DE PIN ---
-  
   void _onForgotPin() async {
     final shouldReset = await showDialog<bool>(
       context: context,
@@ -136,9 +126,8 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
         content: const Text('Esta acción eliminará el PIN guardado, permitiéndote configurar uno nuevo. ¿Estás seguro?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-          // Usamos un color distintivo para la acción de eliminación
           ElevatedButton(
-            onPressed: () => Navigator.pop(context, true), 
+            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('Eliminar y Resetear', style: TextStyle(color: Colors.white)),
           ),
@@ -157,8 +146,6 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       }
     }
   }
-  
-  // --- WIDGETS DE UI ---
 
   @override
   void dispose() {
@@ -167,7 +154,7 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   }
 
   Widget _buildContent() {
-    final subtitle = _hasPin ? 'Ingresa tu PIN' : 'Crea un PIN de acceso (mín. 4 dígitos)';
+    final subtitle = _hasPin ? 'Ingresa tu PIN' : 'Crea un PIN de acceso (exactamente 4 dígitos)';
     final actionLabel = _hasPin ? 'Validar PIN' : 'Crear PIN';
 
     return Column(
@@ -175,7 +162,7 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
       children: [
         Icon(Icons.lock, size: 72, color: Theme.of(context).primaryColor),
         const SizedBox(height: 12),
-        Text('Validación de credenciales', style: Theme.of(context).textTheme.titleLarge), // título más prominente
+        Text('Validación de credenciales', style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
         Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 16)),
         const SizedBox(height: 20),
@@ -185,17 +172,28 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
             controller: _pinController,
             keyboardType: TextInputType.number,
             obscureText: _obscure,
-            maxLength: 8,
+            maxLength: 4,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
               labelText: 'PIN',
               counterText: '',
               errorText: _error,
-              suffixIcon: IconButton(
-                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                onPressed: () => setState(() => _obscure = !_obscure),
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_pinController.text.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => _pinController.clear()),
+                    ),
+                  IconButton(
+                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                    onPressed: () => setState(() => _obscure = !_obscure),
+                  ),
+                ],
               ),
             ),
+            onChanged: (_) => setState(() {}),
             onSubmitted: (_) => _onValidatePressed(),
           ),
         ),
@@ -211,10 +209,10 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
         if (_hasPin)
           TextButton(
             onPressed: _onForgotPin,
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
             child: const Text('Olvidé mi PIN / Resetear'),
           ),
         const SizedBox(height: 20),
-        // Se usa `const` si la fecha no cambia dinámicamente, o se envuelve en Builder si lo hace
         Text('Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
