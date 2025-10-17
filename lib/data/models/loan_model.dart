@@ -94,17 +94,18 @@ class LoanModel {
         payments = payments ?? <Payment>[],
         paymentDates = paymentDates ?? <DateTime>[];
 
-  // ✅ MEJORADO: Lógica de isFullyPaid más robusta
+  // ✅ MEJORADO: Lógica de isFullyPaid más robusta con tolerancia mejorada
   bool get isFullyPaid {
     // Si el status ya es 'pagado', retornar true inmediatamente
     if (status.toLowerCase() == 'pagado') return true;
     
-    // Si remainingBalance es muy cercano a cero, considerar pagado
+    // ✅ TOLERANCIA MEJORADA: Considerar pagado si el saldo es muy pequeño
     if (remainingBalance <= 0.01) return true;
     
     // Si totalPaid es igual o mayor al totalAmountToPay (con tolerancia)
     if (totalAmountToPay != null) {
-      return totalPaid >= (totalAmountToPay! - 0.01);
+      double difference = totalAmountToPay! - totalPaid;
+      return difference <= 0.01;
     }
     
     // Fallback: comparar con amount original
@@ -120,7 +121,7 @@ class LoanModel {
     return digits.length <= 5 ? digits : digits.substring(digits.length - 5);
   }
 
-  // ✅ MEJORADO: registerPayment con lógica más robusta
+  // ✅ MEJORADO: registerPayment con lógica más robusta para eliminar residuos
   void registerPayment(Payment payment) {
     // Agregar el pago a la lista
     payments.add(payment);
@@ -128,15 +129,18 @@ class LoanModel {
     // Actualizar total pagado
     totalPaid += payment.amount;
     
-    // ✅ CALCULO CORREGIDO: remainingBalance debe ser totalAmountToPay - totalPaid
+    // ✅ LÓGICA MEJORADA: Cálculo más robusto del saldo restante
     final totalOwed = totalAmountToPay ?? amount;
-    remainingBalance = (totalOwed - totalPaid).clamp(0.0, double.infinity);
+    double newBalance = totalOwed - totalPaid;
     
-    // ✅ LÓGICA MEJORADA: Marcar como pagado si se cumple
-    if (remainingBalance <= 0.01) {
+    // ✅ FORZAR A CERO si el residuo es muy pequeño
+    if (newBalance.abs() <= 0.01) {
+      newBalance = 0.0;
       status = 'pagado';
-      remainingBalance = 0.0; // ✅ FORZAR a cero
+      debugPrint('🎉 Préstamo marcado como completamente pagado. Residuo eliminado.');
     }
+    
+    remainingBalance = newBalance.clamp(0.0, double.infinity);
     
     // ✅ ACTUALIZAR paymentDates: remover la fecha del pago realizado
     _updatePaymentDatesAfterPayment(payment.date);
@@ -166,6 +170,18 @@ class LoanModel {
       totalPaid = totalOwed;
       remainingBalance = 0.0;
     }
+  }
+
+  // ✅ NUEVO: Método para forzar cierre del préstamo
+  void forceCloseLoan() {
+    status = 'pagado';
+    remainingBalance = 0.0;
+    if (totalAmountToPay != null) {
+      totalPaid = totalAmountToPay!;
+    } else {
+      totalPaid = amount;
+    }
+    debugPrint('🔒 Préstamo forzado a estado pagado');
   }
 
   void normalizePaymentDates() {
@@ -269,6 +285,70 @@ class LoanModel {
     return nextDate ?? dueDate;
   }
 
+  // ✅ NUEVO: Método para verificar si el préstamo puede recibir pagos
+  bool get canAcceptPayments {
+    return isActive && !isFullyPaid && remainingBalance > 0.01;
+  }
+
+  // ✅ NUEVO: Método para obtener el progreso del pago (0.0 a 1.0)
+  double get paymentProgress {
+    final totalOwed = totalAmountToPay ?? amount;
+    if (totalOwed <= 0) return 1.0;
+    
+    final progress = totalPaid / totalOwed;
+    return progress.clamp(0.0, 1.0);
+  }
+
+  // ✅ NUEVO: Método para validar consistencia de datos
+  bool validateConsistency() {
+    final totalOwed = totalAmountToPay ?? amount;
+    final calculatedBalance = totalOwed - totalPaid;
+    final balanceDifference = (remainingBalance - calculatedBalance).abs();
+    
+    // Permitir pequeñas diferencias por redondeo
+    if (balanceDifference > 0.02) {
+      debugPrint('⚠️  Advertencia: Inconsistencia en saldo. Calculado: $calculatedBalance, Actual: $remainingBalance');
+      return false;
+    }
+    
+    // Validar que si está pagado, el saldo sea cero
+    if (status.toLowerCase() == 'pagado' && remainingBalance > 0.01) {
+      debugPrint('⚠️  Advertencia: Estado pagado pero saldo restante: $remainingBalance');
+      return false;
+    }
+    
+    return true;
+  }
+
+  // ✅ NUEVO: Método para corregir inconsistencias automáticamente
+  void autoCorrectInconsistencies() {
+    final totalOwed = totalAmountToPay ?? amount;
+    
+    // Si el saldo es muy pequeño pero el estado no es pagado
+    if (remainingBalance <= 0.01 && status != 'pagado') {
+      forceCloseLoan();
+      debugPrint('🔧 Auto-corrección: Préstamo marcado como pagado por saldo mínimo');
+      return;
+    }
+    
+    // Si el estado es pagado pero hay saldo, ajustar
+    if (status == 'pagado' && remainingBalance > 0.01) {
+      remainingBalance = 0.0;
+      totalPaid = totalOwed;
+      debugPrint('🔧 Auto-corrección: Saldo forzado a cero para préstamo pagado');
+      return;
+    }
+    
+    // Recalcular saldo si hay inconsistencia
+    final calculatedBalance = totalOwed - totalPaid;
+    final balanceDifference = (remainingBalance - calculatedBalance).abs();
+    
+    if (balanceDifference > 0.02) {
+      remainingBalance = calculatedBalance.clamp(0.0, double.infinity);
+      debugPrint('🔧 Auto-corrección: Saldo recalculado a $remainingBalance');
+    }
+  }
+
   LoanModel copyWith({
     String? id,
     String? clientId,
@@ -320,7 +400,7 @@ class LoanModel {
     return 'LoanModel(id: $id, client: $clientName, status: $status, totalPaid: $totalPaid, remaining: $remainingBalance, isFullyPaid: $isFullyPaid, payments: ${payments.length})';
   }
 
-  // ✅ NUEVO: Método para debug
+  // ✅ MEJORADO: Método para debug con más información
   Map<String, dynamic> toDebugMap() {
     return {
       'id': id,
@@ -330,11 +410,14 @@ class LoanModel {
       'remainingBalance': remainingBalance,
       'isFullyPaid': isFullyPaid,
       'isActive': isActive,
+      'canAcceptPayments': canAcceptPayments,
       'amountDueToday': getAmountDueToday(),
+      'paymentProgress': '${(paymentProgress * 100).toStringAsFixed(1)}%',
       'paymentDatesCount': paymentDates.length,
       'paymentsCount': payments.length,
       'hasOverduePayments': hasOverduePayments,
       'nextPaymentDate': nextPaymentDate?.toString(),
+      'dataConsistent': validateConsistency(),
     };
   }
 }

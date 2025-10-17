@@ -1,3 +1,11 @@
+// lib/presentation/screens/loans/loan_form_screen.dart
+//#################################################
+//#  Pantalla de Formulario de Préstamo           #
+//#  Permite crear o editar un préstamo,           #
+//#  seleccionar cliente, ingresar datos y ver    #
+//#  simulación de pagos.                         #
+//#################################################
+
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -28,7 +36,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   final TextEditingController _clientLastNameController = TextEditingController();
   final TextEditingController _phoneNumberController = TextEditingController();
   final TextEditingController _whatsappNumberController = TextEditingController();
-  final TextEditingController _startDateController = TextEditingController();
+  // ✅ Eliminado: _startDateController (ya no se necesita)
 
   final LoanRepository _loanRepository = LoanRepository();
   final ClientRepository _clientRepository = ClientRepository();
@@ -59,7 +67,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _amountController.addListener(_updateCalculations);
     _interestRateController.addListener(_updateCalculations);
     _termValueController.addListener(_updateCalculations);
-    _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
+    // ✅ Eliminado: _startDateController.text = ...
 
     if (widget.loan != null) {
       _prefillFromLoan(widget.loan!);
@@ -78,7 +86,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _clientLastNameController.dispose();
     _phoneNumberController.dispose();
     _whatsappNumberController.dispose();
-    _startDateController.dispose();
+    // ✅ Eliminado: _startDateController.dispose();
     super.dispose();
   }
 
@@ -91,7 +99,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _paymentFrequency = loan.paymentFrequency;
     _setTermUnitBasedOnFrequency();
     _startDate = loan.startDate;
-    _startDateController.text = DateFormat('dd/MM/yyyy').format(_startDate);
+    // ✅ Eliminado: _startDateController.text = ...
     _dueDate = loan.dueDate;
     _paymentDates = loan.paymentDates ?? [];
     _calculatedTotalToPay = loan.totalAmountToPay ?? _calculatedTotalToPay;
@@ -203,125 +211,187 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
   }
 
-  List<Map<String, dynamic>> buildAnnuitySchedule({
-    required double principal,
-    required double annualRatePercent,
-    required int numberOfPayments,
-    required String frequency,
-    required DateTime startDate,
-  }) {
-    final int periodsPerYear = _periodsPerYearForFrequency(frequency);
-    final double annualRate = annualRatePercent / 100.0;
-    final double r = annualRate / periodsPerYear;
+List<Map<String, dynamic>> buildAnnuitySchedule({
+  required double principal,
+  required double annualRatePercent,
+  required int numberOfPayments,
+  required String frequency,
+  required DateTime startDate,
+}) {
+  debugPrint('🔄 Iniciando buildAnnuitySchedule...');
+  debugPrint('   Principal: $principal, Tasa: $annualRatePercent%, Pagos: $numberOfPayments, Frecuencia: $frequency');
 
-    final int principalCents = (principal * 100).round();
-    final int n = numberOfPayments;
-    if (n <= 0) return [];
+  final int periodsPerYear = _periodsPerYearForFrequency(frequency);
+  final double annualRate = annualRatePercent / 100.0;
+  final double r = annualRate / periodsPerYear;
 
-    double payment;
-    if (r > 0) {
-      final denom = 1 - pow(1 + r, -n);
-      payment = denom == 0 ? principal / n : principal * r / denom;
+  debugPrint('   Tasa periódica: $r, Periodos por año: $periodsPerYear');
+
+  final int principalCents = (principal * 100).round();
+  final int n = numberOfPayments;
+  if (n <= 0) {
+    debugPrint('❌ Número de pagos inválido: $n');
+    return [];
+  }
+
+  double payment;
+  if (r > 0) {
+    final denom = 1 - pow(1 + r, -n);
+    payment = denom == 0 ? principal / n : principal * r / denom;
+  } else {
+    payment = principal / n;
+  }
+
+  final int paymentCentsBase = (payment * 100).round();
+  debugPrint('   Cuota base calculada: ${paymentCentsBase / 100}');
+
+  List<Map<String, dynamic>> schedule = [];
+  DateTime current = startDate;
+  int remainingCents = principalCents;
+  int totalInterestAccumCents = 0;
+  int sumPaymentsCents = 0;
+
+  for (int i = 0; i < n; i++) {
+    if (frequency == 'Diario') {
+      current = current.add(const Duration(days: 1));
+    } else if (frequency == 'Semanal') {
+      current = current.add(const Duration(days: 7));
+    } else if (frequency == 'Quincenal') {
+      current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
     } else {
-      payment = principal / n;
+      current = addMonthsSafe(current, 1);
     }
 
-    final int paymentCentsBase = (payment * 100).floor();
+    // Calcular interés para el período
+    double interestForPeriod = (remainingCents / 100.0) * r;
+    int interestCents = (interestForPeriod * 100).round();
 
-    List<Map<String, dynamic>> schedule = [];
-    DateTime current = startDate;
-    int remainingCents = principalCents;
-    int totalInterestAccumCents = 0;
-    int sumPaymentsCents = 0;
+    int principalCentsForPeriod;
+    int paymentCents;
 
-    for (int i = 0; i < n; i++) {
-      if (frequency == 'Diario') {
-        current = current.add(const Duration(days: 1));
-      } else if (frequency == 'Semanal') {
-        current = current.add(const Duration(days: 7));
-      } else if (frequency == 'Quincenal') {
-        current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
-      } else {
-        current = addMonthsSafe(current, 1);
+    // ✅ SOLUCIÓN: Lógica mejorada para la última cuota
+    if (i == n - 1) {
+      // Última cuota: el capital es exactamente el saldo restante
+      principalCentsForPeriod = remainingCents;
+      // Recalcular interés basado en el saldo real
+      interestCents = ((remainingCents / 100.0) * r * 100).round();
+      paymentCents = principalCentsForPeriod + interestCents;
+      remainingCents = 0; // ✅ Forzar saldo a cero
+    } else {
+      // Cuotas normales
+      principalCentsForPeriod = paymentCentsBase - interestCents;
+      
+      // Asegurar que el capital no sea negativo
+      if (principalCentsForPeriod < 0) {
+        principalCentsForPeriod = 0;
       }
-
-      final double interestForPeriod = (remainingCents / 100.0) * r;
-      int interestCents = (interestForPeriod * 100).round();
-      int principalCentsForPeriod = paymentCentsBase - interestCents;
-      if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
-
-      if (i == n - 1) {
-        interestCents = ((remainingCents / 100.0) * r * 100).round();
+      
+      // Asegurar que no paguemos más del saldo restante
+      if (principalCentsForPeriod > remainingCents) {
         principalCentsForPeriod = remainingCents;
       }
-
-      final int paymentCents = principalCentsForPeriod + interestCents;
-      remainingCents = max(0, remainingCents - principalCentsForPeriod);
-
-      totalInterestAccumCents += interestCents;
-      sumPaymentsCents += paymentCents;
-
-      schedule.add({
-        'index': i + 1,
-        'date': current,
-        'paymentCents': paymentCents,
-        'interestCents': interestCents,
-        'principalCents': principalCentsForPeriod,
-        'remainingCents': remainingCents,
-      });
+      
+      paymentCents = paymentCentsBase;
+      remainingCents = remainingCents - principalCentsForPeriod;
     }
 
-    final int expectedTotalPaid = principalCents + totalInterestAccumCents;
-    final int delta = expectedTotalPaid - sumPaymentsCents;
-    if (delta != 0 && schedule.isNotEmpty) {
-      final last = schedule.last;
-      last['principalCents'] = (last['principalCents'] as int) + delta;
-      last['paymentCents'] = (last['paymentCents'] as int) + delta;
-      last['remainingCents'] = 0;
-    }
-    return schedule;
-  }
+    totalInterestAccumCents += interestCents;
+    sumPaymentsCents += paymentCents;
 
-  void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
-    final int n = termValue;
-    if (n <= 0) {
-      setState(() {
-        _calculatedInterest = 0.0;
-        _calculatedTotalToPay = 0.0;
-        _calculatedPaymentAmount = 0.0;
-        _numberOfPayments = 0;
-        _paymentDates = [];
-        _amortizationSchedule = [];
-      });
-      return;
-    }
-
-    final schedule = buildAnnuitySchedule(
-      principal: amount,
-      annualRatePercent: interestRatePercent,
-      numberOfPayments: n,
-      frequency: _paymentFrequency,
-      startDate: _startDate,
-    );
-
-    final int totalInterestCents = schedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
-    final int totalPaidCents = schedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
-    final List<DateTime> dates = schedule.map((e) => _normalizeDate(e['date'] as DateTime)).toList();
-
-    setState(() {
-      _amortizationSchedule = schedule;
-      _calculatedInterest = (totalInterestCents / 100.0);
-      _calculatedTotalToPay = (totalPaidCents / 100.0);
-      _calculatedPaymentAmount = schedule.isNotEmpty ? (schedule.first['paymentCents'] as int) / 100.0 : 0.0;
-      _numberOfPayments = n;
-      _paymentDates = dates;
+    schedule.add({
+      'index': i + 1,
+      'date': current,
+      'paymentCents': paymentCents,
+      'interestCents': interestCents,
+      'principalCents': principalCentsForPeriod,
+      'remainingCents': remainingCents,
     });
 
-    _updateDueDate();
+    debugPrint('   Cuota ${i + 1}: Capital: ${principalCentsForPeriod / 100}, Interés: ${interestCents / 100}, Saldo: ${remainingCents / 100}');
+
+    // ✅ Si el saldo es cero, terminar el ciclo
+    if (remainingCents <= 0) {
+      break;
+    }
   }
 
+  // ✅ VALIDACIÓN FINAL: Asegurar que el saldo final sea cero
+  if (schedule.isNotEmpty) {
+    final lastPayment = schedule.last;
+    if (lastPayment['remainingCents'] > 0) {
+      debugPrint('🔧 Aplicando ajuste final para residuo: ${lastPayment['remainingCents'] / 100}');
+      // Ajuste final para eliminar cualquier residuo
+      final adjustment = lastPayment['remainingCents'] as int;
+      schedule.last['principalCents'] = (lastPayment['principalCents'] as int) + adjustment;
+      schedule.last['paymentCents'] = (lastPayment['paymentCents'] as int) + adjustment;
+      schedule.last['remainingCents'] = 0;
+    }
+  }
+
+  debugPrint('✅ Cronograma generado: ${schedule.length} pagos, Saldo final: ${schedule.isNotEmpty ? schedule.last['remainingCents'] / 100 : 0}');
+
+  return schedule;
+}
+
+
+ void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
+  final int n = termValue;
+  if (n <= 0) {
+    setState(() {
+      _calculatedInterest = 0.0;
+      _calculatedTotalToPay = 0.0;
+      _calculatedPaymentAmount = 0.0;
+      _numberOfPayments = 0;
+      _paymentDates = [];
+      _amortizationSchedule = [];
+    });
+    return;
+  }
+
+  debugPrint('🔄 Calculando detalles del préstamo...');
+  debugPrint('   Monto: $amount, Tasa: $interestRatePercent%, Plazo: $n, Frecuencia: $_paymentFrequency');
+
+  // ✅ GENERAR EL CRONOGRAMA
+  final schedule = buildAnnuitySchedule(
+    principal: amount,
+    annualRatePercent: interestRatePercent,
+    numberOfPayments: n,
+    frequency: _paymentFrequency,
+    startDate: _startDate,
+  );
+
+  debugPrint('   Cronograma generado: ${schedule.length} pagos');
+
+  // ✅ ASIGNAR PRIMERO EL CRONOGRAMA
+  setState(() {
+    _amortizationSchedule = schedule;
+  });
+
+  // ✅ LUEGO VALIDAR Y CORREGIR
+  _validateAndCorrectSchedule();
+
+  // ✅ RECALCULAR TOTALES DESPUÉS DE LA CORRECCIÓN
+  final int totalInterestCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
+  final int totalPaidCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
+  final List<DateTime> dates = _amortizationSchedule.map((e) => _normalizeDate(e['date'] as DateTime)).toList();
+
+  setState(() {
+    _calculatedInterest = totalInterestCents / 100.0;
+    _calculatedTotalToPay = totalPaidCents / 100.0;
+    _calculatedPaymentAmount = _amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['paymentCents'] as int) / 100.0 : 0.0;
+    _numberOfPayments = n;
+    _paymentDates = dates;
+  });
+
+  debugPrint('   Total a pagar: $_calculatedTotalToPay');
+  debugPrint('   Fechas de pago: ${_paymentDates.length}');
+  debugPrint('   Interés calculado: $_calculatedInterest');
+
+  _updateDueDate();
+}
+
   DateTime _calculateDueDate() {
-    final now = _startDate;
+    final now = _startDate; // ✅ Usa _startDate, no DateTime.now()
     int termValue = int.tryParse(_termValueController.text) ?? 0;
 
     if (termValue == 0) return now;
@@ -356,85 +426,143 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     if (picked != null && picked != _startDate) {
       setState(() {
         _startDate = picked;
-        _startDateController.text = DateFormat('dd/MM/yyyy').format(picked);
         _updateCalculations();
       });
     }
   }
+  // ✅ NUEVO: Función para validar y corregir el cronograma
+  void _validateAndCorrectSchedule() {
+    if (_amortizationSchedule.isEmpty) return;
+    
+    final lastPayment = _amortizationSchedule.last;
+    final remainingCents = lastPayment['remainingCents'] as int;
+    
+    // Si hay residuo, aplicar corrección
+    if (remainingCents > 0) {
+      debugPrint('🔧 Aplicando corrección para residuo de ${remainingCents / 100}');
+      
+      // Ajustar la última cuota
+      _amortizationSchedule.last['principalCents'] = 
+          (_amortizationSchedule.last['principalCents'] as int) + remainingCents;
+      _amortizationSchedule.last['paymentCents'] = 
+          (_amortizationSchedule.last['paymentCents'] as int) + remainingCents;
+      _amortizationSchedule.last['remainingCents'] = 0;
+      
+      // Recalcular totales
+      final totalInterestCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
+      final totalPaidCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
+      
+      setState(() {
+        _calculatedInterest = totalInterestCents / 100.0;
+        _calculatedTotalToPay = totalPaidCents / 100.0;
+      });
+      
+      debugPrint('✅ Corrección aplicada. Nuevo saldo: 0.0');
+    }
+  }
 
   Future<void> _saveLoan() async {
-    if (_formKey.currentState!.validate()) {
-      _formKey.currentState!.save();
+  if (_formKey.currentState!.validate()) {
+    _formKey.currentState!.save();
 
-      String? clientId;
-      String? clientName;
-      String? phoneNumber;
-      String? whatsappNumber;
+    debugPrint('🔍 Iniciando guardado de préstamo...');
 
-      if (!_isCreatingNewClient && _selectedClient != null && _selectedClient!.id.isNotEmpty) {
-        clientId = _selectedClient!.id;
-        clientName = '${_selectedClient!.name} ${_selectedClient!.lastName}';
-        phoneNumber = _selectedClient!.phone;
-        whatsappNumber = _selectedClient!.whatsapp;
+    String? clientId;
+    String? clientName;
+    String? phoneNumber;
+    String? whatsappNumber;
+
+    if (!_isCreatingNewClient && _selectedClient != null && _selectedClient!.id.isNotEmpty) {
+      clientId = _selectedClient!.id;
+      clientName = '${_selectedClient!.name} ${_selectedClient!.lastName}';
+      phoneNumber = _selectedClient!.phone;
+      whatsappNumber = _selectedClient!.whatsapp;
+      debugPrint('✅ Cliente existente seleccionado: $clientName');
+    } else {
+      if (_clientNameController.text.isNotEmpty && _clientLastNameController.text.isNotEmpty) {
+        phoneNumber = _phoneNumberController.text.trim();
+        whatsappNumber = _whatsappNumberController.text.trim();
+
+        final newClient = Client(
+          id: const Uuid().v4(),
+          name: _clientNameController.text.trim(),
+          lastName: _clientLastNameController.text.trim(),
+          phone: phoneNumber,
+          whatsapp: whatsappNumber,
+          identification: '',
+        );
+        
+        debugPrint('🆕 Creando nuevo cliente: ${newClient.name} ${newClient.lastName}');
+        await _clientRepository.createClient(newClient);
+        clientId = newClient.id;
+        clientName = '${newClient.name} ${newClient.lastName}';
       } else {
-        if (_clientNameController.text.isNotEmpty && _clientLastNameController.text.isNotEmpty) {
-          phoneNumber = _phoneNumberController.text.trim();
-          whatsappNumber = _whatsappNumberController.text.trim();
-
-          final newClient = Client(
-            id: const Uuid().v4(),
-            name: _clientNameController.text.trim(),
-            lastName: _clientLastNameController.text.trim(),
-            phone: phoneNumber,
-            whatsapp: whatsappNumber,
-            identification: '',
+        debugPrint('❌ Datos de cliente incompletos');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Por favor, selecciona un cliente o ingresa los datos de uno nuevo.')),
           );
-          await _clientRepository.createClient(newClient);
-          clientId = newClient.id;
-          clientName = '${newClient.name} ${newClient.lastName}';
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Por favor, selecciona un cliente o ingresa los datos de uno nuevo.')),
-            );
-          }
-          return;
         }
+        return;
       }
+    }
 
-      final double amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
-      final double interestRatePercent = double.tryParse(_interestRateController.text) ?? 0.0;
-      final int termValue = int.tryParse(_termValueController.text) ?? 1;
+     final double amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
+    final double interestRatePercent = double.tryParse(_interestRateController.text) ?? 0.0;
+    final int termValue = int.tryParse(_termValueController.text) ?? 1;
 
-      if (_amortizationSchedule.isEmpty || _paymentDates.isEmpty) {
-        _calculateLoanDetails(amount, interestRatePercent, termValue);
+    debugPrint('📊 Datos del préstamo: Monto: $amount, Tasa: $interestRatePercent%, Plazo: $termValue');
+
+    // ✅ FORZAR EL CÁLCULO INDEPENDIENTEMENTE
+    debugPrint('🔄 Forzando cálculo del cronograma...');
+    _calculateLoanDetails(amount, interestRatePercent, termValue);
+
+    // ✅ ESPERAR PARA ASEGURAR QUE EL CÁLCULO SE COMPLETE
+    await Future.delayed(const Duration(milliseconds: 100));
+
+    debugPrint('💰 Total a pagar calculado: $_calculatedTotalToPay');
+    debugPrint('📅 Fechas de pago: ${_paymentDates.length}');
+
+    // ✅ VERIFICAR QUE LOS CÁLCULOS SEAN VÁLIDOS
+    if (_calculatedTotalToPay == 0.0 || _paymentDates.isEmpty) {
+      debugPrint('❌ Error: Cálculos no son válidos. Total: $_calculatedTotalToPay, Fechas: ${_paymentDates.length}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error en los cálculos. Verifica los datos e intenta nuevamente.')),
+        );
       }
+      return;
+    }
 
-      final idToUse = widget.loan?.id ?? const Uuid().v4();
+    final idToUse = widget.loan?.id ?? const Uuid().v4();
 
-      final newLoan = LoanModel(
-        id: idToUse,
-        clientId: clientId!,
-        clientName: clientName!,
-        amount: amount,
-        interestRate: (interestRatePercent / 100),
-        termValue: termValue,
-        startDate: _startDate,
-        dueDate: _dueDate,
-        paymentFrequency: _paymentFrequency,
-        termUnit: _termUnit,
-        whatsappNumber: whatsappNumber,
-        phoneNumber: phoneNumber,
-        payments: widget.loan?.payments ?? [],
-        remainingBalance: _calculatedTotalToPay,
-        totalPaid: widget.loan?.totalPaid ?? 0.0,
-        status: 'activo',
-        calculatedPaymentAmount: _calculatedPaymentAmount,
-        totalAmountToPay: _calculatedTotalToPay,
-        paymentDates: _paymentDates,
-      );
+    final newLoan = LoanModel(
+      id: idToUse,
+      clientId: clientId!,
+      clientName: clientName!,
+      amount: amount,
+      interestRate: (interestRatePercent / 100),
+      termValue: termValue,
+      startDate: _startDate,
+      dueDate: _dueDate,
+      paymentFrequency: _paymentFrequency,
+      termUnit: _termUnit,
+      whatsappNumber: whatsappNumber,
+      phoneNumber: phoneNumber,
+      payments: widget.loan?.payments ?? [],
+      remainingBalance: _calculatedTotalToPay, // ✅ Saldo inicial = total a pagar
+      totalPaid: widget.loan?.totalPaid ?? 0.0,
+      status: 'activo',
+      calculatedPaymentAmount: _calculatedPaymentAmount,
+      totalAmountToPay: _calculatedTotalToPay,
+      paymentDates: _paymentDates,
+    );
 
-      await _loanRepository.addLoan(newLoan);
+    debugPrint('💾 Guardando préstamo en repository...');
+    
+    try {
+      await _loanRepository.updateLoan(newLoan);
+      debugPrint('✅ Préstamo guardado exitosamente - ID: ${newLoan.id}');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -442,14 +570,23 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
         );
         Navigator.pop(context, true);
       }
-    } else {
+    } catch (e) {
+      debugPrint('❌ Error al guardar préstamo: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Por favor completa correctamente el formulario antes de guardar.')),
+          SnackBar(content: Text('Error al guardar: $e')),
         );
       }
     }
+  } else {
+    debugPrint('❌ Validación del formulario falló');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor completa correctamente el formulario antes de guardar.')),
+      );
+    }
   }
+}
 
   void _showSimulationModal() {
     final currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
@@ -589,6 +726,7 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
       },
     );
   }
+
 
   Widget _summaryRowSmall(String title, String value) {
     return Column(
@@ -761,15 +899,20 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              TextFormField(
-                controller: _startDateController,
-                readOnly: true,
-                decoration: const InputDecoration(
+              // ✅ Reemplazado TextFormField por InputDecorator + GestureDetector
+              InputDecorator(
+                decoration: InputDecoration(
                   labelText: 'Fecha de Inicio del Préstamo',
                   border: OutlineInputBorder(),
-                  suffixIcon: Icon(Icons.calendar_today),
+                  suffixIcon: const Icon(Icons.calendar_today),
                 ),
-                onTap: () => _selectStartDate(context),
+                child: GestureDetector(
+                  onTap: () => _selectStartDate(context),
+                  child: Text(
+                    DateFormat('dd/MM/yyyy').format(_startDate),
+                    style: Theme.of(context).textTheme.bodyLarge,
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               TextFormField(
