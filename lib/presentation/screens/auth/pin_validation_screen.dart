@@ -1,8 +1,14 @@
-// lib/presentation/screens/auth/pin_validation_screen.dart (EDITADO Y MEJORADO)
-
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
+// NOTE: Se asume que estos imports están en tu proyecto
+// import 'package:loan_app/data/models/loan_model.dart';
+// import 'package:loan_app/domain/entities/client.dart';
+// import 'package:loan_app/domain/entities/payment.dart';
+import 'package:path_provider/path_provider.dart';
+import 'dart:io';
+
+import 'package:loan_app/main.dart' as app_main;
 
 class PinValidationScreen extends StatefulWidget {
   const PinValidationScreen({super.key});
@@ -17,6 +23,7 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   bool _loading = true;
   bool _hasPin = false;
   bool _obscure = true;
+  bool _resetting = false;
   String? _storedPin;
   String? _error;
 
@@ -26,125 +33,203 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   @override
   void initState() {
     super.initState();
-    _initHiveAndLoadPin();
+    _loadPin();
   }
 
-  Future<void> _initHiveAndLoadPin() async {
+  // ✅ CARGA SIMPLE DEL PIN
+  Future<void> _loadPin() async {
     try {
-      final box = await Hive.openBox(_boxName);
-      final value = box.get(_pinKey);
-      final isPinValid = value is String && value.trim().isNotEmpty;
-      if (mounted) {
-        setState(() {
-          _storedPin = isPinValid ? value : null;
-          _hasPin = isPinValid;
-        });
-      }
+      debugPrint('🔍 Cargando configuración de PIN...');
+      final settingsBox = await app_main.openSettingsBox();
+      final value = settingsBox.get(_pinKey);
+      final isPinValid = value is String && value.trim().isNotEmpty && value.length == 4;
+      
+      setState(() {
+        _storedPin = isPinValid ? value : null;
+        _hasPin = isPinValid;
+        _loading = false;
+      });
+      
     } catch (e) {
-      debugPrint('Error leyendo PIN desde Hive: $e');
-      if (mounted) {
-        setState(() {
-          _storedPin = null;
-          _hasPin = false;
-        });
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-        });
-      }
+      debugPrint('❌ Error cargando PIN: $e');
+      setState(() {
+        _storedPin = null;
+        _hasPin = false;
+        _loading = false;
+      });
     }
   }
 
-  Box get _settingsBox => Hive.box(_boxName);
-
+  // ✅ GUARDAR PIN
   Future<void> _savePin(String pin) async {
-    await _settingsBox.put(_pinKey, pin);
-    _storedPin = pin;
-    _hasPin = true;
+    try {
+      final settingsBox = await app_main.openSettingsBox();
+      await settingsBox.put(_pinKey, pin);
+      await settingsBox.flush(); 
+      
+      debugPrint('💾 PIN guardado: $pin');
+      
+      setState(() {
+        _storedPin = pin;
+        _hasPin = true;
+      });
+    } catch (e) {
+      debugPrint('❌ Error guardando PIN: $e');
+      rethrow;
+    }
   }
 
-  Future<void> _deletePin() async {
-    await _settingsBox.delete(_pinKey);
-    _storedPin = null;
-    _hasPin = false;
+  // 💣 FUNCIÓN DESTRUCTIVA: RESET NUCLEAR (Borra todos los datos)
+  Future<void> _performNuclearReset() async {
+    try {
+      debugPrint('💥 INICIANDO RESET NUCLEAR...');
+      
+      // 1. Cerrar todas las cajas de Hive
+      await Hive.close();
+      debugPrint('✅ Hive cerrado');
+      
+      // 2. Eliminar carpeta Hive completa
+      String hivePath;
+      if (Platform.isLinux) {
+        hivePath = '${Platform.environment['HOME']}/Documentos/hive_data';
+      } else {
+        final appDocDir = await getApplicationDocumentsDirectory();
+        hivePath = appDocDir.path;
+      }
+      
+      final hiveDir = Directory(hivePath);
+      if (await hiveDir.exists()) {
+        await hiveDir.delete(recursive: true);
+        debugPrint('🗑️ Carpeta eliminada: $hivePath');
+        await Future.delayed(const Duration(milliseconds: 500));
+      }
+      
+      // NOTA: No es necesario llamar a Hive.initFlutter() aquí si ya está en main.dart
+      
+    } catch (e) {
+      debugPrint('❌ Error en reset nuclear: $e');
+      rethrow;
+    }
   }
 
-  // --- Mejoras de validación y seguridad ---
-  bool _isPinInsecure(String pin) {
-    const insecurePins = {'0000', '1234', '1111', '2222', '4321', '1212', '9999', '5555', '1004', '2000'};
-    return insecurePins.contains(pin);
-  }
-
-  void _onValidatePressed() {
+  // ✅ VALIDACIÓN/CREACIÓN DE PIN
+  void _validateOrCreatePin() {
     final input = _pinController.text.trim();
+    
+    if (input.isEmpty) {
+      setState(() => _error = 'Por favor ingresa el PIN');
+      return;
+    }
+    
+    if (input.length != 4 || !RegExp(r'^\d{4}$').hasMatch(input)) {
+      setState(() => _error = 'El PIN debe tener 4 dígitos numéricos');
+      return;
+    }
+
     setState(() => _error = null);
 
-    if (input.isEmpty) {
-      setState(() => _error = 'Por favor ingresa el PIN.');
-      return;
-    }
-
-    // FLUJO DE CREACIÓN DE PIN
+    // CREAR NUEVO PIN
     if (!_hasPin) {
-      if (input.length != 4 || !RegExp(r'^\d{4}$').hasMatch(input)) {
-        setState(() => _error = 'El PIN debe tener exactamente 4 dígitos numéricos.');
-        return;
-      }
-      if (_isPinInsecure(input)) {
-        setState(() => _error = 'El PIN elegido es demasiado fácil. Elige uno más seguro.');
-        return;
-      }
       _savePin(input).then((_) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN guardado correctamente')));
-          _pinController.clear();
-          Navigator.pushReplacementNamed(context, '/home');
-        }
+        _showSuccess('PIN configurado correctamente');
+        _navigateToHome();
       }).catchError((e) {
-        setState(() => _error = 'Error al guardar PIN: $e');
+        setState(() => _error = 'Error: $e');
       });
       return;
     }
 
-    // FLUJO DE VALIDACIÓN DE PIN
+    // VALIDAR PIN EXISTENTE
     if (_storedPin == input) {
-      Navigator.pushReplacementNamed(context, '/home');
+      _navigateToHome();
     } else {
-      setState(() {
-        _error = 'PIN incorrecto. Intenta de nuevo.';
-      });
+      setState(() => _error = 'PIN incorrecto');
     }
   }
 
-  void _onForgotPin() async {
-    final shouldReset = await showDialog<bool>(
+  // ✅ NAVEGACIÓN A HOME
+  void _navigateToHome() {
+    app_main.openDataBoxes().then((_) {
+      Navigator.pushReplacementNamed(context, '/home');
+    }).catchError((e) {
+      setState(() => _error = 'Error cargando datos: $e');
+    });
+  }
+
+  // -----------------------------------------------------------------------
+  // 🎯 FLUJO ÚNICO: OLVIDÉ PIN = BORRAR TODO 🎯
+  // -----------------------------------------------------------------------
+  
+  // ✅ INICIA EL BORRADO TOTAL
+  void _initiateReset() async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('⚠️ Olvidé PIN'),
-        content: const Text('Esta acción eliminará el PIN guardado, permitiéndote configurar uno nuevo. ¿Estás seguro?'),
+        title: const Text('⚠️ REINICIO TOTAL DEL SISTEMA'),
+        content: const Text(
+          '¡ADVERTENCIA CRÍTICA! ¿Estás seguro que deseas reiniciar el sistema? '
+          'Esto **eliminará PERMANENTEMENTE**:\n\n'
+          '• Todos los préstamos\n'
+          '• Todos los clientes\n'
+          '• Todos los pagos\n'
+          '• El PIN de acceso\n\n'
+          'Tras el reinicio, podrás crear un nuevo PIN. Esta acción no se puede deshacer.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Eliminar y Resetear', style: TextStyle(color: Colors.white)),
+            child: const Text('ELIMINAR TODO Y REINICIAR'),
           ),
         ],
       ),
     );
 
-    if (shouldReset == true) {
-      await _deletePin();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN eliminado. Por favor, ingresa uno nuevo para configurarlo.')));
-        setState(() {
-          _pinController.clear();
-          _error = null;
-        });
-      }
+    if (confirmed == true) {
+      await _executeReset();
     }
+  }
+
+  // ✅ EJECUCIÓN DEL BORRADO TOTAL Y CAMBIO DE ESTADO
+  Future<void> _executeReset() async {
+    setState(() => _resetting = true);
+
+    try {
+      await _performNuclearReset(); // 💣 Llama al borrado de toda la carpeta Hive
+      
+      _showSuccess('Sistema reiniciado. Todos los datos han sido eliminados.');
+      
+      // Recargar estado al modo "Crear PIN"
+      setState(() {
+        _pinController.clear();
+        _error = null;
+        _hasPin = false; // <-- Esto fuerza al modo de creación de PIN
+        _storedPin = null;
+        _resetting = false;
+      });
+      
+    } catch (e) {
+      setState(() {
+        _resetting = false;
+        _error = 'Error en borrado total: $e';
+      });
+    }
+  }
+  // -----------------------------------------------------------------------
+
+  // ✅ MOSTRAR MENSAJE DE ÉXITO
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green,
+        duration: const Duration(seconds: 4),
+      ),
+    );
   }
 
   @override
@@ -153,67 +238,109 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
     super.dispose();
   }
 
+  // ✅ INTERFAZ DE USUARIO SIMPLE (Se usa _initiateReset en el TextButton)
   Widget _buildContent() {
-    final subtitle = _hasPin ? 'Ingresa tu PIN' : 'Crea un PIN de acceso (exactamente 4 dígitos)';
-    final actionLabel = _hasPin ? 'Validar PIN' : 'Crear PIN';
+    if (_loading) {
+      return const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(),
+          SizedBox(height: 16),
+          Text('Cargando...'),
+        ],
+      );
+    }
+
+    if (_resetting) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const CircularProgressIndicator(),
+          const SizedBox(height: 16),
+          const Text(
+            'Reiniciando sistema...',
+            style: TextStyle(fontSize: 16),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+            style: const TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+        ],
+      );
+    }
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Icon(Icons.lock, size: 72, color: Theme.of(context).primaryColor),
-        const SizedBox(height: 12),
-        Text('Validación de credenciales', style: Theme.of(context).textTheme.titleLarge),
+        // Icono y título
+        Icon(
+          Icons.lock,
+          size: 64,
+          color: Theme.of(context).primaryColor,
+        ),
+        const SizedBox(height: 16),
+        Text(
+          _hasPin ? 'Ingresa tu PIN' : 'Configura tu PIN',
+          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 8),
-        Text(subtitle, style: const TextStyle(color: Colors.grey, fontSize: 16)),
-        const SizedBox(height: 20),
+        Text(
+          _hasPin ? 'Para acceder a la aplicación' : 'Crea un PIN de 4 dígitos para seguridad',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        const SizedBox(height: 24),
+
+        // Campo de PIN
         SizedBox(
-          width: 260,
+          width: 200,
           child: TextField(
             controller: _pinController,
             keyboardType: TextInputType.number,
             obscureText: _obscure,
             maxLength: 4,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 20, letterSpacing: 8),
             decoration: InputDecoration(
-              border: const OutlineInputBorder(),
               labelText: 'PIN',
               counterText: '',
               errorText: _error,
-              suffixIcon: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_pinController.text.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.clear),
-                      onPressed: () => setState(() => _pinController.clear()),
-                    ),
-                  IconButton(
-                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
-                    onPressed: () => setState(() => _obscure = !_obscure),
-                  ),
-                ],
+              suffixIcon: IconButton(
+                icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                onPressed: () => setState(() => _obscure = !_obscure),
               ),
             ),
             onChanged: (_) => setState(() {}),
-            onSubmitted: (_) => _onValidatePressed(),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 24),
+
+        // Botón de acción
         SizedBox(
-          width: 260,
+          width: 200,
           child: ElevatedButton(
-            onPressed: _onValidatePressed,
-            child: Text(actionLabel, style: const TextStyle(fontSize: 16)),
+            onPressed: _validateOrCreatePin,
+            child: Text(_hasPin ? 'Validar' : 'Crear PIN'),
           ),
         ),
-        const SizedBox(height: 8),
-        if (_hasPin)
+
+        // Botón de reset (solo si hay PIN)
+        if (_hasPin) ...[
+          const SizedBox(height: 16),
           TextButton(
-            onPressed: _onForgotPin,
+            // 🎯 CAMBIO CLAVE: Llama al flujo de borrado total
+            onPressed: _initiateReset, 
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Olvidé mi PIN / Resetear'),
+            child: const Text('Olvidé mi PIN (Borrar Todos los Datos)'),
           ),
-        const SizedBox(height: 20),
-        Text('Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        ],
+
+        // Información
+        const SizedBox(height: 32),
+        Text(
+          'Fecha: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
       ],
     );
   }
@@ -221,21 +348,15 @@ class _PinValidationScreenState extends State<PinValidationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Acceso a la Aplicación')),
+      appBar: AppBar(
+        title: const Text('Acceso Seguro'),
+        centerTitle: true,
+      ),
       body: Center(
-        child: _loading
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 12),
-                  Text('Cargando configuración...'),
-                ],
-              )
-            : SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Center(child: _buildContent()),
-              ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: _buildContent(),
+        ),
       ),
     );
   }

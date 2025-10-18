@@ -23,58 +23,84 @@ import 'package:loan_app/services/notifications_service.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  String hivePath;
-
-  // Determinar la ruta de Hive según la plataforma
-  if (Platform.isLinux) {
-    // Usar una ruta específica para desarrollo en Linux (o Windows/macOS si se usa Dart Standalone)
-    // Esto asegura que la DB de desarrollo NO está en la carpeta de compilación.
-    final Directory appDir = Directory('${Platform.environment['HOME']}/Documentos/hive_data');
-    await appDir.create(recursive: true);
-    hivePath = appDir.path;
-  } else {
-    // Usar la ruta estándar de documentos de la aplicación para móviles (Android/iOS)
-    final Directory appDir = await getApplicationDocumentsDirectory();
-    hivePath = appDir.path;
-  }
-
-  // Inicializa Hive en ruta decidida
-  await Hive.initFlutter(hivePath);
-  debugPrint('DEBUG: Hive usando la ruta: $hivePath');
-
-  // Registrar adaptadores
-  Hive.registerAdapter(ClientAdapter());
-  Hive.registerAdapter(LoanModelAdapter());
-  Hive.registerAdapter(PaymentAdapter());
-
-  // Abrir cajas (incluye 'app_settings' para el PIN)
-  try {
-    if (!Hive.isBoxOpen('clients')) await Hive.openBox<Client>('clients').timeout(const Duration(seconds: 3));
-    if (!Hive.isBoxOpen('loans')) await Hive.openBox<LoanModel>('loans').timeout(const Duration(seconds: 3));
-    if (!Hive.isBoxOpen('payments')) await Hive.openBox<Payment>('payments').timeout(const Duration(seconds: 3));
-    
-    // ✅ IMPORTANTE: Abrir la caja de configuración para el PIN aquí
-    if (!Hive.isBoxOpen('app_settings')) await Hive.openBox('app_settings').timeout(const Duration(seconds: 3));
-    
-    debugPrint('DEBUG: Cajas Hive abiertas correctamente ✅');
-  } catch (e, st) {
-    debugPrint('WARN: No se pudieron abrir las cajas Hive al inicio: $e\n$st');
-  }
-
-  // Inicializar el servicio de notificaciones
+  // ✅ INICIALIZACIÓN SIMPLE Y DIRECTA - Sin reset automático
+  await _initializeHive();
   await NotificationsService().init();
 
   runApp(
     ChangeNotifierProvider(
-      // Carga inicial de préstamos
-      create: (context) => LoanProvider()..loadLoans(),
+      create: (context) => LoanProvider(),
       child: const MyApp(),
     ),
   );
 }
 
+// ✅ INICIALIZACIÓN BÁSICA DE HIVE
+Future<void> _initializeHive() async {
+  String hivePath;
+
+  if (Platform.isLinux) {
+    final Directory appDir = Directory('${Platform.environment['HOME']}/Documentos/hive_data');
+    await appDir.create(recursive: true);
+    hivePath = appDir.path;
+  } else {
+    final Directory appDir = await getApplicationDocumentsDirectory();
+    hivePath = appDir.path;
+  }
+
+  await Hive.initFlutter(hivePath);
+  debugPrint('🔧 Hive inicializado en: $hivePath');
+
+  // Registrar adaptadores
+  Hive.registerAdapter(ClientAdapter());
+  Hive.registerAdapter(LoanModelAdapter());
+  Hive.registerAdapter(PaymentAdapter());
+}
+
+// ✅ FUNCIÓN PARA ABRIR CAJAS DE DATOS (se llama después del PIN)
+Future<void> openDataBoxes() async {
+  try {
+    debugPrint('📂 Abriendo cajas de datos...');
+    
+    if (!Hive.isBoxOpen('clients')) {
+      await Hive.openBox<Client>('clients');
+      debugPrint('✅ Caja "clients" abierta');
+    }
+    
+    if (!Hive.isBoxOpen('loans')) {
+      await Hive.openBox<LoanModel>('loans');
+      debugPrint('✅ Caja "loans" abierta');
+    }
+    
+    if (!Hive.isBoxOpen('payments')) {
+      await Hive.openBox<Payment>('payments');
+      debugPrint('✅ Caja "payments" abierta');
+    }
+    
+    debugPrint('🎉 Todas las cajas de datos listas');
+  } catch (e) {
+    debugPrint('❌ Error abriendo cajas de datos: $e');
+    rethrow;
+  }
+}
+
+// ✅ FUNCIÓN PARA LA CAJA DE CONFIGURACIÓN (PIN)
+Future<Box> openSettingsBox() async {
+  try {
+    if (!Hive.isBoxOpen('app_settings')) {
+      await Hive.openBox('app_settings');
+      debugPrint('✅ Caja "app_settings" abierta');
+    }
+    return Hive.box('app_settings');
+  } catch (e) {
+    debugPrint('❌ Error abriendo caja de configuración: $e');
+    rethrow;
+  }
+}
+
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
+  
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -82,6 +108,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        useMaterial3: true,
       ),
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
@@ -93,16 +120,14 @@ class MyApp extends StatelessWidget {
         Locale('en', 'US'),
       ],
       locale: const Locale('es', 'ES'),
-      // La ruta inicial que siempre lleva al chequeo de PIN
       initialRoute: '/',
       routes: {
-        '/': (context) => const PinValidationScreen(), // Comprueba PIN o pide crearlo
+        '/': (context) => const PinValidationScreen(),
         '/home': (context) => const HomeScreen(),
         '/clientList': (context) => const ClientListScreen(),
         '/addLoan': (context) => const AddLoanScreen(),
         '/loanList': (context) => const LoanListScreen(),
         '/addPayment': (context) => const PaymentFormScreen(),
-        // Se necesitan más rutas si tienes pantallas para 'Crear PIN' o 'Editar PIN'
       },
     );
   }

@@ -223,7 +223,7 @@ class CreatorInfoScreen extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Versión 1.0.3',
+              'Versión 1.0.4',
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey,

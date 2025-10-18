@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="Loan App">Tu Nuevo Nombre Aquí</string>
+    <string name="app_name">Loan App</string>
 </resources>
