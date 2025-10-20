@@ -1,9 +1,7 @@
 // lib/presentation/screens/loans/loan_form_screen.dart
 //#################################################
 //#  Pantalla de Formulario de Préstamo           #
-//#  Permite crear o editar un préstamo,           #
-//#  seleccionar cliente, ingresar datos y ver    #
-//#  simulación de pagos.                         #
+//#  CON SISTEMA DE INTERÉS ANTICIPADO            #
 //#################################################
 
 import 'dart:math';
@@ -13,10 +11,8 @@ import 'package:loan_app/data/models/loan_model.dart';
 import 'package:loan_app/data/repositories/client_repository.dart';
 import 'package:loan_app/data/repositories/loan_repository.dart';
 import 'package:loan_app/domain/entities/client.dart';
-import 'package:loan_app/presentation/screens/clients/client_list_screen.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
-import 'package:loan_app/presentation/screens/loans/loan_edit_screen.dart';
 
 class LoanFormScreen extends StatefulWidget {
   final LoanModel? loan;
@@ -36,7 +32,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   final TextEditingController _clientLastNameController = TextEditingController();
   final TextEditingController _phoneNumberController = TextEditingController();
   final TextEditingController _whatsappNumberController = TextEditingController();
-  // ✅ Eliminado: _startDateController (ya no se necesita)
 
   final LoanRepository _loanRepository = LoanRepository();
   final ClientRepository _clientRepository = ClientRepository();
@@ -50,6 +45,9 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
   bool _isLoadingClients = false;
   bool _isCreatingNewClient = false;
   final bool _use26Quincenas = true;
+
+  // 🆕 NUEVO: Días de la semana seleccionados para frecuencia diaria
+  List<bool> _selectedDays = List.generate(7, (index) => index != 6); // Todos excepto domingo
 
   double _calculatedInterest = 0.0;
   double _calculatedTotalToPay = 0.0;
@@ -67,7 +65,6 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _amountController.addListener(_updateCalculations);
     _interestRateController.addListener(_updateCalculations);
     _termValueController.addListener(_updateCalculations);
-    // ✅ Eliminado: _startDateController.text = ...
 
     if (widget.loan != null) {
       _prefillFromLoan(widget.loan!);
@@ -86,28 +83,34 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     _clientLastNameController.dispose();
     _phoneNumberController.dispose();
     _whatsappNumberController.dispose();
-    // ✅ Eliminado: _startDateController.dispose();
     super.dispose();
   }
 
   DateTime _normalizeDate(DateTime d) => DateTime(d.year, d.month, d.day);
 
-  void _prefillFromLoan(LoanModel loan) {
-    _amountController.text = loan.amount.toStringAsFixed(0);
-    _interestRateController.text = (loan.interestRate * 100).toString();
-    _termValueController.text = loan.termValue.toString();
-    _paymentFrequency = loan.paymentFrequency;
-    _setTermUnitBasedOnFrequency();
-    _startDate = loan.startDate;
-    // ✅ Eliminado: _startDateController.text = ...
-    _dueDate = loan.dueDate;
-    _paymentDates = loan.paymentDates ?? [];
-    _calculatedTotalToPay = loan.totalAmountToPay ?? _calculatedTotalToPay;
-    _calculatedPaymentAmount = loan.calculatedPaymentAmount ?? _calculatedPaymentAmount;
-    _calculatedInterest = (loan.totalAmountToPay ?? 0.0) - (loan.amount);
-    _numberOfPayments = loan.termValue;
-    _amortizationSchedule = [];
+ void _prefillFromLoan(LoanModel loan) {
+  _amountController.text = loan.amount.toStringAsFixed(0);
+  _interestRateController.text = (loan.interestRate * 100).toString();
+  _termValueController.text = loan.termValue.toString();
+  _paymentFrequency = loan.paymentFrequency;
+  _setTermUnitBasedOnFrequency();
+  _startDate = loan.startDate;
+  _dueDate = loan.dueDate;
+  _paymentDates = loan.paymentDates ?? [];
+  _calculatedTotalToPay = loan.totalAmountToPay ?? _calculatedTotalToPay;
+  _calculatedPaymentAmount = loan.calculatedPaymentAmount ?? _calculatedPaymentAmount;
+  _calculatedInterest = (loan.totalAmountToPay ?? 0.0) - (loan.amount);
+  _numberOfPayments = loan.termValue;
+  _amortizationSchedule = [];
+
+  // 🔸 CORREGIDO: Cargar días seleccionados del préstamo existente
+  if (loan.selectedDays != null && loan.selectedDays.length == 7) {
+    _selectedDays = List<bool>.from(loan.selectedDays);
+  } else {
+    // Si no hay días guardados, usar los por defecto para la frecuencia
+    _selectedDays = _getDefaultDaysForFrequency(_paymentFrequency);
   }
+}
 
   Future<void> _loadClients() async {
     setState(() {
@@ -186,18 +189,175 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     }
   }
 
-  int _periodsPerYearForFrequency(String freq) {
-    switch (freq) {
-      case 'Diario':
-        return 365;
-      case 'Semanal':
-        return 52;
-      case 'Quincenal':
-        return _use26Quincenas ? 26 : 24;
-      case 'Mensual':
-      default:
-        return 12;
+  List<bool> _getDefaultDaysForFrequency(String frequency) {
+  switch (frequency) {
+    case 'Diario':
+      // Para frecuencia diaria, todos los días excepto domingo
+      return List.generate(7, (index) => index != 6);
+    case 'Semanal':
+      // Para semanal, solo lunes
+      return List.generate(7, (index) => index == 0);
+    case 'Quincenal':
+      // Para quincenal, días 1 y 15 (simulado como lunes)
+      return List.generate(7, (index) => index == 0);
+    default: // Mensual
+      // Para mensual, solo el día 1 (simulado como lunes)
+      return List.generate(7, (index) => index == 0);
+  }
+}
+
+
+  List<DateTime> _generatePaymentDates({
+    required DateTime startDate,
+    required int numberOfPayments,
+    required String frequency,
+  }) {
+    List<DateTime> dates = [];
+    DateTime current = startDate;
+
+    for (int i = 0; i < numberOfPayments; i++) {
+      if (frequency == 'Diario') {
+        // Para frecuencia diaria, considerar solo días seleccionados
+        current = _getNextAvailableDay(current);
+      } else if (frequency == 'Semanal') {
+        current = current.add(const Duration(days: 7));
+      } else if (frequency == 'Quincenal') {
+        current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
+      } else {
+        current = addMonthsSafe(current, 1);
+      }
+      
+      dates.add(DateTime(current.year, current.month, current.day));
     }
+
+    return dates;
+  }
+
+  /// 🆕 NUEVO: Encontrar el próximo día disponible basado en días seleccionados
+  DateTime _getNextAvailableDay(DateTime fromDate) {
+    DateTime current = fromDate.add(const Duration(days: 1));
+    
+    while (true) {
+      int weekday = current.weekday - 1; // DateTime: 1=lunes, 7=domingo -> Convertir a 0-6
+      if (_selectedDays[weekday]) {
+        return current;
+      }
+      current = current.add(const Duration(days: 1));
+    }
+  }
+
+  /// 🆕 NUEVO: Selector de días de la semana
+ Widget _buildDaySelector() {
+  const List<String> dayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']; // 🔸 CORREGIDO: 'sab' -> 'Dom'
+  
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Días de cobro:',
+        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+      ),
+      const SizedBox(height: 8),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: List.generate(7, (index) {
+          return GestureDetector(
+            onTap: () {
+              setState(() {
+                _selectedDays[index] = !_selectedDays[index];
+                _updateCalculations(); // Recalcular cuando cambian los días
+              });
+            },
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: _selectedDays[index] ? Colors.blue[700] : Colors.grey[300],
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: _selectedDays[index] ? Colors.blue[900]! : Colors.grey[500]!,
+                ),
+              ),
+              child: Center(
+                child: Text(
+                  dayNames[index],
+                  style: TextStyle(
+                    color: _selectedDays[index] ? Colors.white : Colors.grey[700],
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+      const SizedBox(height: 8),
+      Text(
+        'Días seleccionados: ${_selectedDays.where((day) => day).length}',
+        style: const TextStyle(fontSize: 12, color: Colors.grey),
+      ),
+    ],
+  );
+}
+
+  /// SISTEMA: INTERÉS ANTICIPADO
+  List<Map<String, dynamic>> buildAnticipatedInterestSchedule({
+    required double principal,
+    required double annualRatePercent,
+    required int numberOfPayments,
+    required String frequency,
+    required DateTime startDate,
+  }) {
+    debugPrint('🔄 Iniciando buildAnticipatedInterestSchedule...');
+    debugPrint('   Principal: $principal, Tasa: $annualRatePercent%, Pagos: $numberOfPayments, Frecuencia: $frequency');
+
+    // CÁLCULO DE INTERÉS ANTICIPADO
+    final double interestAmount = principal * (annualRatePercent / 100);
+    final double totalToPay = principal + interestAmount;
+    final double paymentAmount = totalToPay / numberOfPayments;
+
+    debugPrint('   Interés total: $interestAmount, Total a pagar: $totalToPay, Cuota: $paymentAmount');
+
+    List<Map<String, dynamic>> schedule = [];
+    
+    // 🆕 MODIFICADO: Usar el nuevo método para generar fechas
+    final List<DateTime> paymentDates = _generatePaymentDates(
+      startDate: startDate,
+      numberOfPayments: numberOfPayments,
+      frequency: frequency,
+    );
+
+    for (int i = 0; i < numberOfPayments; i++) {
+      final DateTime paymentDate = paymentDates[i];
+
+      // EN INTERÉS ANTICIPADO: cada cuota paga la misma cantidad de capital e interés
+      final double principalPortion = principal / numberOfPayments;
+      final double interestPortion = interestAmount / numberOfPayments;
+      
+      // Calcular saldo restante (solo capital)
+      final double remainingPrincipal = principal - (principalPortion * (i + 1));
+      
+      // Convertir a centavos para precisión
+      final int paymentCents = (paymentAmount * 100).round();
+      final int interestCents = (interestPortion * 100).round();
+      final int principalCents = (principalPortion * 100).round();
+      final int remainingCents = (remainingPrincipal * 100).round();
+
+      schedule.add({
+        'index': i + 1,
+        'date': paymentDate,
+        'paymentCents': paymentCents,
+        'interestCents': interestCents,
+        'principalCents': principalCents,
+        'remainingCents': remainingCents,
+      });
+
+      debugPrint('   Cuota ${i + 1}: Pago: ${paymentCents / 100}, Capital: ${principalCents / 100}, Interés: ${interestCents / 100}, Saldo: ${remainingCents / 100}');
+    }
+
+    debugPrint('✅ Cronograma de interés anticipado generado: ${schedule.length} pagos');
+    return schedule;
   }
 
   DateTime addMonthsSafe(DateTime date, int monthsToAdd) {
@@ -211,194 +371,65 @@ class _LoanFormScreenState extends State<LoanFormScreen> {
     return DateTime(year, month, day, date.hour, date.minute, date.second, date.millisecond, date.microsecond);
   }
 
-List<Map<String, dynamic>> buildAnnuitySchedule({
-  required double principal,
-  required double annualRatePercent,
-  required int numberOfPayments,
-  required String frequency,
-  required DateTime startDate,
-}) {
-  debugPrint('🔄 Iniciando buildAnnuitySchedule...');
-  debugPrint('   Principal: $principal, Tasa: $annualRatePercent%, Pagos: $numberOfPayments, Frecuencia: $frequency');
-
-  final int periodsPerYear = _periodsPerYearForFrequency(frequency);
-  final double annualRate = annualRatePercent / 100.0;
-  final double r = annualRate / periodsPerYear;
-
-  debugPrint('   Tasa periódica: $r, Periodos por año: $periodsPerYear');
-
-  final int principalCents = (principal * 100).round();
-  final int n = numberOfPayments;
-  if (n <= 0) {
-    debugPrint('❌ Número de pagos inválido: $n');
-    return [];
-  }
-
-  double payment;
-  if (r > 0) {
-    final denom = 1 - pow(1 + r, -n);
-    payment = denom == 0 ? principal / n : principal * r / denom;
-  } else {
-    payment = principal / n;
-  }
-
-  final int paymentCentsBase = (payment * 100).round();
-  debugPrint('   Cuota base calculada: ${paymentCentsBase / 100}');
-
-  List<Map<String, dynamic>> schedule = [];
-  DateTime current = startDate;
-  int remainingCents = principalCents;
-  int totalInterestAccumCents = 0;
-  int sumPaymentsCents = 0;
-
-  for (int i = 0; i < n; i++) {
-    if (frequency == 'Diario') {
-      current = current.add(const Duration(days: 1));
-    } else if (frequency == 'Semanal') {
-      current = current.add(const Duration(days: 7));
-    } else if (frequency == 'Quincenal') {
-      current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
-    } else {
-      current = addMonthsSafe(current, 1);
+  void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
+    final int n = termValue;
+    if (n <= 0) {
+      setState(() {
+        _calculatedInterest = 0.0;
+        _calculatedTotalToPay = 0.0;
+        _calculatedPaymentAmount = 0.0;
+        _numberOfPayments = 0;
+        _paymentDates = [];
+        _amortizationSchedule = [];
+      });
+      return;
     }
 
-    // Calcular interés para el período
-    double interestForPeriod = (remainingCents / 100.0) * r;
-    int interestCents = (interestForPeriod * 100).round();
+    debugPrint('🔄 Calculando detalles del préstamo (INTERÉS ANTICIPADO)...');
+    debugPrint('   Monto: $amount, Tasa: $interestRatePercent%, Plazo: $n, Frecuencia: $_paymentFrequency');
 
-    int principalCentsForPeriod;
-    int paymentCents;
+    // USAR EL NUEVO SISTEMA DE INTERÉS ANTICIPADO
+    final schedule = buildAnticipatedInterestSchedule(
+      principal: amount,
+      annualRatePercent: interestRatePercent,
+      numberOfPayments: n,
+      frequency: _paymentFrequency,
+      startDate: _startDate,
+    );
 
-    // ✅ SOLUCIÓN: Lógica mejorada para la última cuota
-    if (i == n - 1) {
-      // Última cuota: el capital es exactamente el saldo restante
-      principalCentsForPeriod = remainingCents;
-      // Recalcular interés basado en el saldo real
-      interestCents = ((remainingCents / 100.0) * r * 100).round();
-      paymentCents = principalCentsForPeriod + interestCents;
-      remainingCents = 0; // ✅ Forzar saldo a cero
-    } else {
-      // Cuotas normales
-      principalCentsForPeriod = paymentCentsBase - interestCents;
-      
-      // Asegurar que el capital no sea negativo
-      if (principalCentsForPeriod < 0) {
-        principalCentsForPeriod = 0;
-      }
-      
-      // Asegurar que no paguemos más del saldo restante
-      if (principalCentsForPeriod > remainingCents) {
-        principalCentsForPeriod = remainingCents;
-      }
-      
-      paymentCents = paymentCentsBase;
-      remainingCents = remainingCents - principalCentsForPeriod;
-    }
+    debugPrint('   Cronograma generado: ${schedule.length} pagos');
 
-    totalInterestAccumCents += interestCents;
-    sumPaymentsCents += paymentCents;
+    // Calcular totales
+    final int totalInterestCents = schedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
+    final int totalPaidCents = schedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
+    final List<DateTime> dates = schedule.map((e) => _normalizeDate(e['date'] as DateTime)).toList();
 
-    schedule.add({
-      'index': i + 1,
-      'date': current,
-      'paymentCents': paymentCents,
-      'interestCents': interestCents,
-      'principalCents': principalCentsForPeriod,
-      'remainingCents': remainingCents,
-    });
-
-    debugPrint('   Cuota ${i + 1}: Capital: ${principalCentsForPeriod / 100}, Interés: ${interestCents / 100}, Saldo: ${remainingCents / 100}');
-
-    // ✅ Si el saldo es cero, terminar el ciclo
-    if (remainingCents <= 0) {
-      break;
-    }
-  }
-
-  // ✅ VALIDACIÓN FINAL: Asegurar que el saldo final sea cero
-  if (schedule.isNotEmpty) {
-    final lastPayment = schedule.last;
-    if (lastPayment['remainingCents'] > 0) {
-      debugPrint('🔧 Aplicando ajuste final para residuo: ${lastPayment['remainingCents'] / 100}');
-      // Ajuste final para eliminar cualquier residuo
-      final adjustment = lastPayment['remainingCents'] as int;
-      schedule.last['principalCents'] = (lastPayment['principalCents'] as int) + adjustment;
-      schedule.last['paymentCents'] = (lastPayment['paymentCents'] as int) + adjustment;
-      schedule.last['remainingCents'] = 0;
-    }
-  }
-
-  debugPrint('✅ Cronograma generado: ${schedule.length} pagos, Saldo final: ${schedule.isNotEmpty ? schedule.last['remainingCents'] / 100 : 0}');
-
-  return schedule;
-}
-
-
- void _calculateLoanDetails(double amount, double interestRatePercent, int termValue) {
-  final int n = termValue;
-  if (n <= 0) {
     setState(() {
-      _calculatedInterest = 0.0;
-      _calculatedTotalToPay = 0.0;
-      _calculatedPaymentAmount = 0.0;
-      _numberOfPayments = 0;
-      _paymentDates = [];
-      _amortizationSchedule = [];
+      _amortizationSchedule = schedule;
+      _calculatedInterest = totalInterestCents / 100.0;
+      _calculatedTotalToPay = totalPaidCents / 100.0;
+      _calculatedPaymentAmount = schedule.isNotEmpty ? (schedule.first['paymentCents'] as int) / 100.0 : 0.0;
+      _numberOfPayments = n;
+      _paymentDates = dates;
     });
-    return;
+
+    debugPrint('   Total a pagar: $_calculatedTotalToPay');
+    debugPrint('   Interés total: $_calculatedInterest');
+    debugPrint('   Cuota fija: $_calculatedPaymentAmount');
+
+    _updateDueDate();
   }
-
-  debugPrint('🔄 Calculando detalles del préstamo...');
-  debugPrint('   Monto: $amount, Tasa: $interestRatePercent%, Plazo: $n, Frecuencia: $_paymentFrequency');
-
-  // ✅ GENERAR EL CRONOGRAMA
-  final schedule = buildAnnuitySchedule(
-    principal: amount,
-    annualRatePercent: interestRatePercent,
-    numberOfPayments: n,
-    frequency: _paymentFrequency,
-    startDate: _startDate,
-  );
-
-  debugPrint('   Cronograma generado: ${schedule.length} pagos');
-
-  // ✅ ASIGNAR PRIMERO EL CRONOGRAMA
-  setState(() {
-    _amortizationSchedule = schedule;
-  });
-
-  // ✅ LUEGO VALIDAR Y CORREGIR
-  _validateAndCorrectSchedule();
-
-  // ✅ RECALCULAR TOTALES DESPUÉS DE LA CORRECCIÓN
-  final int totalInterestCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
-  final int totalPaidCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
-  final List<DateTime> dates = _amortizationSchedule.map((e) => _normalizeDate(e['date'] as DateTime)).toList();
-
-  setState(() {
-    _calculatedInterest = totalInterestCents / 100.0;
-    _calculatedTotalToPay = totalPaidCents / 100.0;
-    _calculatedPaymentAmount = _amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['paymentCents'] as int) / 100.0 : 0.0;
-    _numberOfPayments = n;
-    _paymentDates = dates;
-  });
-
-  debugPrint('   Total a pagar: $_calculatedTotalToPay');
-  debugPrint('   Fechas de pago: ${_paymentDates.length}');
-  debugPrint('   Interés calculado: $_calculatedInterest');
-
-  _updateDueDate();
-}
 
   DateTime _calculateDueDate() {
-    final now = _startDate; // ✅ Usa _startDate, no DateTime.now()
+    final now = _startDate;
     int termValue = int.tryParse(_termValueController.text) ?? 0;
 
     if (termValue == 0) return now;
 
     switch (_termUnit) {
       case 'Días':
-        return now.add(Duration(days: termValue));
+        // Para días, usar la última fecha de pago del cronograma
+        return _paymentDates.isNotEmpty ? _paymentDates.last : now.add(Duration(days: termValue));
       case 'Semanas':
         return now.add(Duration(days: termValue * 7));
       case 'Quincenas':
@@ -430,42 +461,12 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
       });
     }
   }
-  // ✅ NUEVO: Función para validar y corregir el cronograma
-  void _validateAndCorrectSchedule() {
-    if (_amortizationSchedule.isEmpty) return;
-    
-    final lastPayment = _amortizationSchedule.last;
-    final remainingCents = lastPayment['remainingCents'] as int;
-    
-    // Si hay residuo, aplicar corrección
-    if (remainingCents > 0) {
-      debugPrint('🔧 Aplicando corrección para residuo de ${remainingCents / 100}');
-      
-      // Ajustar la última cuota
-      _amortizationSchedule.last['principalCents'] = 
-          (_amortizationSchedule.last['principalCents'] as int) + remainingCents;
-      _amortizationSchedule.last['paymentCents'] = 
-          (_amortizationSchedule.last['paymentCents'] as int) + remainingCents;
-      _amortizationSchedule.last['remainingCents'] = 0;
-      
-      // Recalcular totales
-      final totalInterestCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
-      final totalPaidCents = _amortizationSchedule.fold<int>(0, (s, e) => s + (e['paymentCents'] as int));
-      
-      setState(() {
-        _calculatedInterest = totalInterestCents / 100.0;
-        _calculatedTotalToPay = totalPaidCents / 100.0;
-      });
-      
-      debugPrint('✅ Corrección aplicada. Nuevo saldo: 0.0');
-    }
-  }
 
-  Future<void> _saveLoan() async {
+ Future<void> _saveLoan() async {
   if (_formKey.currentState!.validate()) {
     _formKey.currentState!.save();
 
-    debugPrint('🔍 Iniciando guardado de préstamo...');
+    debugPrint('🔍 Iniciando guardado de préstamo (INTERÉS ANTICIPADO)...');
 
     String? clientId;
     String? clientName;
@@ -507,25 +508,30 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
       }
     }
 
-     final double amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
+    final double amount = double.tryParse(_amountController.text.replaceAll(',', '')) ?? 0.0;
     final double interestRatePercent = double.tryParse(_interestRateController.text) ?? 0.0;
     final int termValue = int.tryParse(_termValueController.text) ?? 1;
 
     debugPrint('📊 Datos del préstamo: Monto: $amount, Tasa: $interestRatePercent%, Plazo: $termValue');
 
-    // ✅ FORZAR EL CÁLCULO INDEPENDIENTEMENTE
-    debugPrint('🔄 Forzando cálculo del cronograma...');
-    _calculateLoanDetails(amount, interestRatePercent, termValue);
+    // 🔸 CORREGIDO: Preparar días seleccionados para guardar
+    final List<bool> daysToSave;
+    if (_paymentFrequency == 'Diario') {
+      daysToSave = List<bool>.from(_selectedDays);
+      debugPrint('📅 Guardando días personalizados: $daysToSave');
+    } else {
+      daysToSave = _getDefaultDaysForFrequency(_paymentFrequency);
+      debugPrint('📅 Guardando días por defecto para $_paymentFrequency: $daysToSave');
+    }
 
-    // ✅ ESPERAR PARA ASEGURAR QUE EL CÁLCULO SE COMPLETE
+    // Forzar cálculo
+    _calculateLoanDetails(amount, interestRatePercent, termValue);
     await Future.delayed(const Duration(milliseconds: 100));
 
     debugPrint('💰 Total a pagar calculado: $_calculatedTotalToPay');
-    debugPrint('📅 Fechas de pago: ${_paymentDates.length}');
 
-    // ✅ VERIFICAR QUE LOS CÁLCULOS SEAN VÁLIDOS
     if (_calculatedTotalToPay == 0.0 || _paymentDates.isEmpty) {
-      debugPrint('❌ Error: Cálculos no son válidos. Total: $_calculatedTotalToPay, Fechas: ${_paymentDates.length}');
+      debugPrint('❌ Error: Cálculos no son válidos.');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Error en los cálculos. Verifica los datos e intenta nuevamente.')),
@@ -550,19 +556,22 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
       whatsappNumber: whatsappNumber,
       phoneNumber: phoneNumber,
       payments: widget.loan?.payments ?? [],
-      remainingBalance: _calculatedTotalToPay, // ✅ Saldo inicial = total a pagar
+      remainingBalance: _calculatedTotalToPay,
       totalPaid: widget.loan?.totalPaid ?? 0.0,
       status: 'activo',
       calculatedPaymentAmount: _calculatedPaymentAmount,
       totalAmountToPay: _calculatedTotalToPay,
       paymentDates: _paymentDates,
+      selectedDays: daysToSave, // 🔸 CORREGIDO: Incluir días seleccionados
     );
 
-    debugPrint('💾 Guardando préstamo en repository...');
+    // 🔸 DEBUG: Verificar que los días se están guardando
+    debugPrint('💾 Días que se guardarán en el préstamo: ${newLoan.selectedDays}');
     
     try {
       await _loanRepository.updateLoan(newLoan);
       debugPrint('✅ Préstamo guardado exitosamente - ID: ${newLoan.id}');
+      debugPrint('✅ Días guardados: ${newLoan.selectedDays}');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -588,6 +597,7 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
   }
 }
 
+
   void _showSimulationModal() {
     final currency = NumberFormat.currency(locale: 'es_CO', symbol: '\$', decimalDigits: 0);
 
@@ -606,7 +616,6 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                 ? (double.parse(_amountController.text.replaceAll(',', '')) * 100).round()
                 : 0;
             final DateTime? nextPaymentDate = _amortizationSchedule.isNotEmpty ? _amortizationSchedule.first['date'] as DateTime : null;
-            final double firstInterest = _amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['interestCents'] as int) / 100.0 : 0.0;
 
             return Container(
               padding: const EdgeInsets.all(16),
@@ -626,7 +635,15 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                             children: [
                               Row(
                                 children: [
-                                  Expanded(child: Text('Resumen del Crédito', style: Theme.of(context).textTheme.titleLarge ?? const TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+                                  Expanded(
+                                    child: Text(
+                                      'Resumen del Crédito', 
+                                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                        color: Colors.blue[700], // 🟦 Cambiado a azul
+                                        fontWeight: FontWeight.bold
+                                      ) ?? const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 12),
@@ -650,9 +667,7 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                                       crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         _summaryRowSmall('Interés (anual)', _interestRateController.text.isNotEmpty ? '${_interestRateController.text.trim()} %' : '-'),
-                                        const SizedBox(height: 8),
                                         _summaryRowSmall('Valor total interés', currency.format(totalInterestCents / 100.0)),
-                                        const SizedBox(height: 8),
                                         _summaryRowSmall('Valor cuota', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.first['paymentCents'] as int) / 100.0 : 0.0))),
                                       ],
                                     ),
@@ -670,15 +685,7 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                                 ],
                               ),
                               const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: _summaryRowBold('Saldo total', currency.format((_amortizationSchedule.isNotEmpty ? (_amortizationSchedule.last['remainingCents'] as int) / 100.0 : (principalCents + totalInterestCents) / 100.0))),
-                              ),
-                              const SizedBox(height: 8),
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: _summaryRowSmall('Interés primer periodo', currency.format(firstInterest)),
-                              ),
+                              // 🆕 ELIMINADO: Se quitó la fórmula de aquí
                             ],
                           ),
                         ),
@@ -702,7 +709,10 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                               return Card(
                                 margin: const EdgeInsets.symmetric(vertical: 6),
                                 child: ListTile(
-                                  leading: CircleAvatar(child: Text('${e['index']}')),
+                                  leading: CircleAvatar(
+                                    backgroundColor: Colors.blue[50], // 🟦 Cambiado a azul
+                                    child: Text('${e['index']}', style: TextStyle(color: Colors.blue[700])), // 🟦 Cambiado a azul
+                                  ),
                                   title: Text('Cuota #${e['index']} - ${currency.format(paymentPesos)}'),
                                   subtitle: Text(
                                     '${DateFormat('dd/MM/yyyy').format(e['date'])}\n'
@@ -726,7 +736,6 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
       },
     );
   }
-
 
   Widget _summaryRowSmall(String title, String value) {
     return Column(
@@ -752,11 +761,10 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
 
   @override
   Widget build(BuildContext context) {
-    final currencyFormatter = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.loan == null ? 'Registrar Préstamo' : 'Editar Préstamo'),
+        backgroundColor: Colors.blue[700], // 🟦 Cambiado a azul
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -899,7 +907,6 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 16),
-              // ✅ Reemplazado TextFormField por InputDecorator + GestureDetector
               InputDecorator(
                 decoration: InputDecoration(
                   labelText: 'Fecha de Inicio del Préstamo',
@@ -966,6 +973,11 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                     setState(() {
                       _paymentFrequency = newValue;
                       _setTermUnitBasedOnFrequency();
+                      
+                      // 🔸 CORREGIDO: Actualizar días seleccionados cuando cambia la frecuencia
+                      if (newValue != 'Diario') {
+                        _selectedDays = _getDefaultDaysForFrequency(newValue);
+                      }
                       _updateCalculations();
                     });
                   }
@@ -987,6 +999,13 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                   return null;
                 },
               ),
+
+              // 🆕 NUEVO: Selector de días para frecuencia diaria
+              if (_paymentFrequency == 'Diario') ...[
+                const SizedBox(height: 16),
+                _buildDaySelector(),
+              ],
+
               const SizedBox(height: 24),
             ],
           ),
@@ -1005,6 +1024,8 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                   icon: const Icon(Icons.show_chart),
                   label: const Text('Ver simulación'),
                   style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700], // 🟦 Cambiado a azul
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -1018,6 +1039,8 @@ List<Map<String, dynamic>> buildAnnuitySchedule({
                   onPressed: _saveLoan,
                   child: const Text('💸', style: TextStyle(fontSize: 20)),
                   style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700], // 🟦 Cambiado a azul
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),

@@ -48,6 +48,10 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
   // Plan de pagos: valores en centavos (int)
   List<Map<String, dynamic>> _schedule = [];
 
+  // 🔸 Días de cobro para frecuencia diaria
+  List<bool> _selectedDays = List.generate(7, (index) => index != 6); // Todos excepto domingo
+  final bool _use26Quincenas = true;
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +70,14 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
       _startDate = widget.loan.startDate ?? DateTime.now();
       _dueDate = widget.loan.dueDate ?? DateTime.now();
       _startDateCtrl.text = DateFormat('dd/MM/yyyy').format(_startDate);
+
+      // 🔸 CORREGIDO: Mejor inicialización de días seleccionados
+      if (widget.loan.selectedDays != null && widget.loan.selectedDays.length == 7) {
+        _selectedDays = List<bool>.from(widget.loan.selectedDays);
+      } else {
+        // Si no hay días guardados, usar los del préstamo según la frecuencia
+        _selectedDays = _getDefaultDaysForFrequency(_frequency);
+      }
 
       _setTermUnit();
       _recalculateIfNeeded();
@@ -87,6 +99,23 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
     }
   }
 
+  List<bool> _getDefaultDaysForFrequency(String frequency) {
+    switch (frequency) {
+      case 'Diario':
+        // Para frecuencia diaria, todos los días excepto domingo
+        return List.generate(7, (index) => index != 6);
+      case 'Semanal':
+        // Para semanal, solo lunes
+        return List.generate(7, (index) => index == 0);
+      case 'Quincenal':
+        // Para quincenal, días 1 y 15 (simulado como lunes)
+        return List.generate(7, (index) => index == 0);
+      default: // Mensual
+        // Para mensual, solo el día 1 (simulado como lunes)
+        return List.generate(7, (index) => index == 0);
+    }
+  }
+
   void _restoreDefaults() {
     _amountCtrl.text = NumberFormat.decimalPattern('es_CO').format(widget.loan.amount ?? 0.0);
     _rateCtrl.text = ((widget.loan.interestRate ?? 0.0) * 100).toStringAsFixed(2);
@@ -95,6 +124,13 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
     _startDate = widget.loan.startDate ?? DateTime.now();
     _dueDate = widget.loan.dueDate ?? DateTime.now();
     _startDateCtrl.text = DateFormat('dd/MM/yyyy').format(_startDate);
+
+    // 🔸 CORREGIDO: Restaurar días correctamente
+    if (widget.loan.selectedDays != null && widget.loan.selectedDays.length == 7) {
+      _selectedDays = List<bool>.from(widget.loan.selectedDays);
+    } else {
+      _selectedDays = _getDefaultDaysForFrequency(_frequency);
+    }
 
     _setTermUnit();
     _recalculateIfNeeded();
@@ -152,6 +188,23 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
     return double.tryParse(attempt) ?? 0.0;
   }
 
+  // 🔸 Corregido: evita bucle infinito
+  DateTime _getNextAvailableDay(DateTime fromDate) {
+    DateTime current = fromDate.add(const Duration(days: 1));
+    int attempts = 0;
+    final maxAttempts = 365; // Máximo 1 año
+
+    while (attempts < maxAttempts) {
+      int weekday = current.weekday - 1; // 0=lunes, 6=domingo
+      if (weekday >= 0 && weekday < 7 && _selectedDays[weekday]) {
+        return current;
+      }
+      current = current.add(const Duration(days: 1));
+      attempts++;
+    }
+    return current; // fallback
+  }
+
   DateTime _addMonthsSafe(DateTime base, int monthsToAdd) {
     int y = base.year;
     int m = base.month + monthsToAdd;
@@ -163,76 +216,160 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
     return DateTime(y, m, d, base.hour, base.minute, base.second, base.millisecond, base.microsecond);
   }
 
-  List<Map<String, dynamic>> _createSimpleInterestSchedule({
+  // 🔸 Selector de días
+  Widget _buildDaySelector() {
+    const List<String> dayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Días de cobro:',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(7, (index) {
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedDays[index] = !_selectedDays[index];
+                  // 🔸 Validar que al menos un día esté seleccionado
+                  if (!_selectedDays.any((d) => d)) {
+                    _selectedDays[index] = true; // revertir si todos se deseleccionan
+                  }
+                  _recalculateIfNeeded();
+                });
+              },
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _selectedDays[index] ? Colors.blue[700] : Colors.grey[300],
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _selectedDays[index] ? Colors.blue[900]! : Colors.grey,
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    dayNames[index],
+                    style: TextStyle(
+                      color: _selectedDays[index] ? Colors.white : Colors.grey[700],
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Días seleccionados: ${_selectedDays.where((day) => day).length}',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+
+  List<DateTime> _generatePaymentDates({
+    required DateTime startDate,
+    required int numberOfPayments,
+    required String frequency,
+  }) {
+    List<DateTime> dates = [];
+    DateTime current = startDate;
+
+    for (int i = 0; i < numberOfPayments; i++) {
+      if (frequency == 'Diario') {
+        current = _getNextAvailableDay(current);
+      } else if (frequency == 'Semanal') {
+        current = current.add(const Duration(days: 7));
+      } else if (frequency == 'Quincenal') {
+        current = current.add(Duration(days: _use26Quincenas ? 14 : 15));
+      } else {
+        current = _addMonthsSafe(current, 1);
+      }
+      
+      dates.add(DateTime(current.year, current.month, current.day));
+    }
+
+    return dates;
+  }
+
+  // 🔸 CORREGIDO: Usa ANUALIDAD (cuota fija), no interés simple
+  List<Map<String, dynamic>> _buildAnnuitySchedule({
     required double principal,
     required double annualRatePercent,
-    required int payments,
+    required int numberOfPayments,
     required String frequency,
-    required DateTime startAt,
+    required DateTime startDate,
   }) {
-    if (payments <= 0) return [];
-
-    final int periodsPerYear = (frequency == 'Diario')
+    final periodsPerYear = (frequency == 'Diario')
         ? 365
         : (frequency == 'Semanal')
             ? 52
             : (frequency == 'Quincenal')
-                ? 24
+                ? (_use26Quincenas ? 26 : 24)
                 : 12;
 
     final double annualRate = annualRatePercent / 100.0;
-    final double years = payments / periodsPerYear;
+    final double r = annualRate / periodsPerYear;
 
     final int principalCents = (principal * 100).round();
-    final int totalInterestCents = (principalCents * annualRate * years).round();
+    final int n = numberOfPayments;
 
-    final int principalPer = principalCents ~/ payments;
-    final int principalRem = principalCents - (principalPer * payments);
+    double payment;
+    if (r > 0) {
+      final denom = 1 - pow(1 + r, -n);
+      payment = denom == 0 ? principal / n : principal * r / denom;
+    } else {
+      payment = principal / n;
+    }
 
-    final int interestPer = totalInterestCents ~/ payments;
-    final int interestRem = totalInterestCents - (interestPer * payments);
+    final int paymentCentsBase = (payment * 100).floor();
 
-    DateTime current = startAt;
-    int remaining = principalCents;
-    final List<Map<String, dynamic>> list = [];
+    // 🔸 Generar fechas personalizadas
+    final List<DateTime> paymentDates = _generatePaymentDates(
+      startDate: startDate,
+      numberOfPayments: n,
+      frequency: frequency,
+    );
 
-    for (int i = 0; i < payments; i++) {
-      switch (frequency) {
-        case 'Diario':
-          current = current.add(const Duration(days: 1));
-          break;
-        case 'Semanal':
-          current = current.add(const Duration(days: 7));
-          break;
-        case 'Quincenal':
-          current = current.add(const Duration(days: 15));
-          break;
-        default:
-          current = _addMonthsSafe(current, 1);
+    List<Map<String, dynamic>> schedule = [];
+    int remainingCents = principalCents;
+    int totalInterestAccumCents = 0;
+
+    for (int i = 0; i < n; i++) {
+      final DateTime current = paymentDates[i];
+      final double interestForPeriod = (remainingCents / 100.0) * r;
+      int interestCents = (interestForPeriod * 100).round();
+      int principalCentsForPeriod = paymentCentsBase - interestCents;
+      if (principalCentsForPeriod < 0) principalCentsForPeriod = 0;
+
+      if (i == n - 1) {
+        interestCents = ((remainingCents / 100.0) * r * 100).round();
+        principalCentsForPeriod = remainingCents;
       }
 
-      int principalChunk = principalPer;
-      int interestChunk = interestPer;
+      final int paymentCents = principalCentsForPeriod + interestCents;
+      remainingCents = max(0, remainingCents - principalCentsForPeriod);
+      totalInterestAccumCents += interestCents;
 
-      if (i == payments - 1) {
-        principalChunk += principalRem;
-        interestChunk += interestRem;
-      }
-
-      final int paymentCents = principalChunk + interestChunk;
-      remaining = max(0, remaining - principalChunk);
-
-      list.add({
+      schedule.add({
         'index': i + 1,
         'date': current,
         'paymentCents': paymentCents,
-        'interestCents': interestChunk,
-        'principalCents': principalChunk,
-        'remainingCents': remaining,
+        'interestCents': interestCents,
+        'principalCents': principalCentsForPeriod,
+        'remainingCents': remainingCents,
       });
     }
 
-    return list;
+    return schedule;
   }
 
   void _computeLoan(double amount, double annualRatePercent, int termValue) {
@@ -253,12 +390,13 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
       return;
     }
 
-    final schedule = _createSimpleInterestSchedule(
+    // 🔸 Usar anualidad en lugar de interés simple
+    final schedule = _buildAnnuitySchedule(
       principal: amount,
       annualRatePercent: annualRatePercent,
-      payments: n,
+      numberOfPayments: n,
       frequency: _frequency,
-      startAt: _startDate,
+      startDate: _startDate,
     );
 
     final int totalInterestCents = schedule.fold<int>(0, (s, e) => s + (e['interestCents'] as int));
@@ -290,7 +428,7 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
       case 'Semanal':
         return start.add(Duration(days: term * 7));
       case 'Quincenal':
-        return start.add(Duration(days: term * 15));
+        return start.add(Duration(days: term * (_use26Quincenas ? 14 : 15)));
       default:
         return _addMonthsSafe(start, term);
     }
@@ -352,6 +490,11 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
         return;
       }
 
+      // 🔸 CORREGIDO: Asegurar que los días seleccionados se guarden correctamente
+      final List<bool> daysToSave = _frequency == 'Diario' 
+          ? List<bool>.from(_selectedDays) 
+          : _getDefaultDaysForFrequency(_frequency);
+
       final updated = widget.loan.copyWith(
         amount: amount,
         interestRate: interestRate,
@@ -364,7 +507,12 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
         calculatedPaymentAmount: _paymentValue,
         totalAmountToPay: _totalToPay,
         paymentDates: _datesOfPayments,
+        selectedDays: daysToSave, // 🔸 CORREGIDO: Siempre guardar días apropiados
       );
+
+      // 🔸 DEBUG: Verificar lo que se va a guardar
+      print('Días a guardar: $daysToSave');
+      print('Frecuencia: $_frequency');
 
       await _loanRepo.updateLoan(updated);
 
@@ -625,6 +773,11 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                                     setState(() {
                                       _frequency = nv;
                                       _setTermUnit();
+                                      
+                                      // 🔸 CORREGIDO: Actualizar días cuando cambia la frecuencia
+                                      if (nv != 'Diario') {
+                                        _selectedDays = _getDefaultDaysForFrequency(nv);
+                                      }
                                     });
                                     _recalculateIfNeeded();
                                   }
@@ -646,6 +799,12 @@ class _LoanEditScreenState extends State<LoanEditScreen> {
                                   return null;
                                 },
                               ),
+
+                              // 🔸 Mostrar selector de días solo para frecuencia diaria
+                              if (_frequency == 'Diario') ...[
+                                const SizedBox(height: 16),
+                                _buildDaySelector(),
+                              ],
 
                               if (_totalToPay > 0) ...[
                                 const SizedBox(height: 24),

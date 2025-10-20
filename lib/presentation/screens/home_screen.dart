@@ -1,5 +1,6 @@
 //#########################################
-//# esta es la pantalla principal de la app, con busqueda de clientes y acceso a modulos
+//# esta es la pantalla principal de la app,
+//con busqueda de clientes y acceso a modulos
 //#########################################
 
 import 'package:flutter/material.dart';
@@ -119,6 +120,7 @@ class CreatorInfoScreen extends StatelessWidget {
     );
   }
 
+
   Widget _buildLinkRow(BuildContext context, IconData icon, String title, String url) {
     return InkWell(
       onTap: () async {
@@ -223,7 +225,7 @@ class CreatorInfoScreen extends StatelessWidget {
             ),
             const SizedBox(height: 5),
             const Text(
-              'Versión 1.0.4',
+              'Versión 1.0.5',
               style: TextStyle(
                 fontSize: 16,
                 color: Colors.grey,
@@ -284,9 +286,9 @@ class CreatorInfoScreen extends StatelessWidget {
                 padding: EdgeInsets.all(20.0),
                 child: Text(
                   'Hola, mi nombre es Kevin Stiven y te presento mi primera aplicación, LoanApp. Esta  '
-                  'herramienta está diseñada para la gestión eficiente de préstamos, clientes y pagos, '
-                  'ofreciendo un control financiero completo y seguimiento de cuentas por cobrar. Agradezco tu '
-                  'paciencia con cualquier error que puedas encontrar. Para sugerencias o como podria mejorar, puedes '
+                  'herramienta está diseñada para la gestión de préstamos, clientes y pagos, '
+                  'ofreciendo un control financiero completoadema de seguimiento en las cuentas por cobrar. Agradezco tu '
+                  'paciencia con cualquier error que puedas encontrar dentro de la app. Para sugerencias o como podria mejorar, puedes '
                   'comunicarte conmigo a kevinstiventimaran@gmail.com.',
                   style: TextStyle(
                     fontSize: 16,

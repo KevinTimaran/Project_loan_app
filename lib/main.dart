@@ -83,7 +83,6 @@ Future<void> openDataBoxes() async {
     rethrow;
   }
 }
-
 // ✅ FUNCIÓN PARA LA CAJA DE CONFIGURACIÓN (PIN)
 Future<Box> openSettingsBox() async {
   try {

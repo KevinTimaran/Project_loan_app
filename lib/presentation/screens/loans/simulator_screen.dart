@@ -1,5 +1,5 @@
 // lib/presentation/screens/loans/simulator_screen.dart
-// Simulador con Sistema Francés (cuota fija)
+// Simulador con Sistema de Interés Anticipado
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -23,6 +23,8 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
   // UI state
   String _frequency = 'Mensual';
   final List<String> _frequencies = ['Diario', 'Semanal', 'Quincenal', 'Mensual'];
+  
+  List<bool> _selectedDays = List.generate(7, (index) => index != 6); // Todos excepto domingo
 
   List<Map<String, dynamic>> _schedule = [];
   double _totalInterest = 0.0;
@@ -86,9 +88,100 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
     }
   }
 
-  /// SISTEMA FRANCÉS - Cuota fija
-  /// Fórmula: Cuota = P * i * (1+i)^n / ((1+i)^n - 1)
-  Map<String, dynamic> _generateFrenchSystemSchedule({
+  List<DateTime> _generatePaymentDates({
+    required DateTime startDate,
+    required int numberOfPayments,
+    required String frequency,
+  }) {
+    List<DateTime> dates = [];
+    DateTime current = startDate;
+
+    for (int i = 0; i < numberOfPayments; i++) {
+      if (frequency == 'Diario') {
+        // Para frecuencia diaria, considerar solo días seleccionados
+        current = _getNextAvailableDay(current);
+      } else if (frequency == 'Semanal') {
+        current = current.add(const Duration(days: 7));
+      } else if (frequency == 'Quincenal') {
+        current = current.add(const Duration(days: 15));
+      } else {
+        current = addMonthsSafe(current, 1);
+      }
+      
+      dates.add(DateTime(current.year, current.month, current.day));
+    }
+
+    return dates;
+  }
+
+  DateTime _getNextAvailableDay(DateTime fromDate) {
+    DateTime current = fromDate.add(const Duration(days: 1));
+    
+    while (true) {
+      int weekday = current.weekday - 1; // DateTime: 1=lunes, 7=domingo -> Convertir a 0-6
+      if (_selectedDays[weekday]) {
+        return current;
+      }
+      current = current.add(const Duration(days: 1));
+    }
+  }
+
+
+  Widget _buildDaySelector() {
+    const List<String> dayNames = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Días de cobro:',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: List.generate(7, (index) {
+            return GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedDays[index] = !_selectedDays[index];
+                  _simulate(); // Recalcular cuando cambian los días
+                });
+              },
+              child: Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: _selectedDays[index] ? Colors.blue[700] : Colors.grey[300],
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _selectedDays[index] ? Colors.blue[900]! : Colors.grey[500]!
+                  ),
+                ),
+                child: Center(
+                  child: Text(
+                    dayNames[index],
+                    style: TextStyle(
+                      color: _selectedDays[index] ? Colors.white : Colors.grey[700],
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Días seleccionados: ${_selectedDays.where((day) => day).length}',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+  /// Fórmula: Monto final = Principal + (Principal × Tasa)
+  Map<String, dynamic> _generateAnticipatedInterestSchedule({
     required double amount,
     required double annualRatePercent,
     required int term,
@@ -113,99 +206,62 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
       };
     }
 
-    // Calcular tasa periódica según frecuencia
-    double periodRate;
-    Duration periodDuration;
+    //  CÁLCULO DE INTERÉS ANTICIPADO
+    final double interestAmount = amount * (annualRatePercent / 100);
+    final double totalToPay = amount + interestAmount;
+    final double paymentAmount = totalToPay / term;
 
-    switch (frequency.toLowerCase()) {
-      case 'diario':
-        periodRate = (annualRatePercent / 100) / 365;
-        periodDuration = const Duration(days: 1);
-        break;
-      case 'semanal':
-        periodRate = (annualRatePercent / 100) / 52;
-        periodDuration = const Duration(days: 7);
-        break;
-      case 'quincenal':
-        periodRate = (annualRatePercent / 100) / 24;
-        periodDuration = const Duration(days: 15);
-        break;
-      case 'mensual':
-      default:
-        periodRate = (annualRatePercent / 100) / 12;
-        periodDuration = const Duration(days: 30);
-        break;
-    }
-
-    // Calcular cuota fija usando la fórmula del sistema francés
-    final double numerator = periodRate * pow(1 + periodRate, term);
-    final double denominator = pow(1 + periodRate, term) - 1;
-    final double fixedPayment = amount * (numerator / denominator);
-
-    // Trabajar en centavos para precisión
-    int remainingCents = (amount * 100).round();
-    final int fixedPaymentCents = (fixedPayment * 100).round();
-    int totalPaidCents = 0;
+    //  MODIFICADO: Usar el nuevo método para generar fechas
+    final List<DateTime> paymentDates = _generatePaymentDates(
+      startDate: startDate,
+      numberOfPayments: term,
+      frequency: frequency,
+    );
 
     for (int i = 0; i < term; i++) {
-      // Calcular fecha
-      DateTime date;
-      if (frequency.toLowerCase() == 'mensual') {
-        // Respetar días reales del mes
-        int year = startDate.year;
-        int month = startDate.month + i;
-        year += (month - 1) ~/ 12;
-        month = ((month - 1) % 12) + 1;
-        int day = startDate.day;
-        final int lastDay = DateTime(year, month + 1, 0).day;
-        if (day > lastDay) day = lastDay;
-        date = DateTime(year, month, day);
-      } else {
-        date = startDate.add(periodDuration * i);
-      }
-      final normalizedDate = DateTime(date.year, date.month, date.day);
-      dates.add(normalizedDate);
+      final DateTime paymentDate = paymentDates[i];
 
-      // Calcular interés del período sobre saldo actual
-      final double interestRaw = remainingCents * periodRate;
-      final int interestCents = interestRaw.round();
-
-      // Calcular abono a capital
-      int principalCents = fixedPaymentCents - interestCents;
+      // EN INTERÉS ANTICIPADO: cada cuota paga la misma cantidad de capital e interés
+      final double principalPortion = amount / term;
+      final double interestPortion = interestAmount / term;
       
-      // Ajustar última cuota para que no quede saldo negativo
-      if (i == term - 1) {
-        principalCents = remainingCents;
-      }
-
-      // Asegurar que no exceda el saldo restante
-      principalCents = principalCents.clamp(0, remainingCents);
+      // Calcular saldo restante (solo capital)
+      final double remainingPrincipal = amount - (principalPortion * (i + 1));
       
-      final int paymentCents = principalCents + interestCents;
+      // Convertir a centavos para precisión
+      final int paymentCents = (paymentAmount * 100).round();
+      final int interestCents = (interestPortion * 100).round();
+      final int principalCents = (principalPortion * 100).round();
+      final int remainingCents = (remainingPrincipal * 100).round();
 
-      // Actualizar saldo
-      remainingCents -= principalCents;
-      if (remainingCents < 0) remainingCents = 0;
-
-      totalPaidCents += paymentCents;
-
-      // Guardar valores (convertir a pesos)
+      dates.add(paymentDate);
       installments.add(paymentCents / 100.0);
       interests.add(interestCents / 100.0);
       principals.add(principalCents / 100.0);
       remainings.add(remainingCents / 100.0);
     }
 
-    final double totalToPay = totalPaidCents / 100.0;
+    final double totalToPayCalculated = paymentAmount * term;
     return {
       'dates': dates,
       'installments': installments,
       'interests': interests,
       'principals': principals,
       'remainings': remainings,
-      'total': totalToPay,
-      'fixedPayment': fixedPayment
+      'total': totalToPayCalculated,
+      'fixedPayment': paymentAmount
     };
+  }
+
+  DateTime addMonthsSafe(DateTime date, int monthsToAdd) {
+    int year = date.year;
+    int month = date.month + monthsToAdd;
+    year += (month - 1) ~/ 12;
+    month = ((month - 1) % 12) + 1;
+    int day = date.day;
+    int lastDayOfMonth = DateTime(year, month + 1, 0).day;
+    if (day > lastDayOfMonth) day = lastDayOfMonth;
+    return DateTime(year, month, day);
   }
 
   void _simulate() {
@@ -220,7 +276,8 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
 
     if (principal <= 0 || term <= 0) return;
 
-    final res = _generateFrenchSystemSchedule(
+    //  Generar cronograma usando interés anticipado
+    final res = _generateAnticipatedInterestSchedule(
       amount: principal,
       annualRatePercent: rate,
       term: term,
@@ -265,6 +322,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
       _termCtrl.clear();
       _frequency = 'Mensual';
       _startDate = DateTime.now();
+      _selectedDays = List.generate(7, (index) => index != 6); // Resetear días
       _schedule = [];
       _totalInterest = 0.0;
       _totalPaid = 0.0;
@@ -290,7 +348,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Resumen - Sistema Francés', 
+            Text('Resumen del Préstamo', 
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                   color: Colors.blue[700]
@@ -339,7 +397,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
               children: [
                 Expanded(child: _summarySmall('Frecuencia', _frequency)),
                 Expanded(child: _summarySmall('Periodos/año', '${_periodsPerYear(_frequency)}')),
-                Expanded(child: _summarySmall('Sistema', 'Francés')),
+                // ELIMINADO: No mostrar el sistema específico
               ],
             ),
           ],
@@ -386,7 +444,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(vertical: 8.0),
           child: Text(
-            'Tabla de Amortización (${_schedule.length} cuotas)',
+            'Cronograma de Pagos (${_schedule.length} cuotas)',
             style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
           ),
         ),
@@ -407,7 +465,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
               child: ListTile(
                 leading: CircleAvatar(
                   backgroundColor: Colors.blue[50],
-                  child: Text('${e['index']}', style: const TextStyle(color: Colors.blue)),
+                  child: Text('${e['index']}', style: TextStyle(color: Colors.blue[700])),
                 ),
                 title: Text(
                   '${_currency.format(payment)} • ${_dateFormat.format(date)}',
@@ -435,7 +493,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
               ),
             );
           },
-    ),
+        ),
       ],
     );
   }
@@ -446,7 +504,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Simulador - Sistema Francés'),
+        title: const Text('Simulador de Préstamos'),
         backgroundColor: Colors.blue[700],
       ),
       body: SingleChildScrollView(
@@ -513,11 +571,21 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                               value: _frequency,
                               decoration: numberField.copyWith(labelText: 'Frecuencia'),
                               items: _frequencies.map((f) => DropdownMenuItem(value: f, child: Text(f))).toList(),
-                              onChanged: (v) => setState(() => _frequency = v ?? 'Mensual'),
+                              onChanged: (v) {
+                                setState(() => _frequency = v ?? 'Mensual');
+                                _simulate(); // Recalcular al cambiar frecuencia
+                              },
                             ),
                           ),
                         ],
                       ),
+                      
+                      //Sección de días para frecuencia diaria
+                      if (_frequency == 'Diario') ...[
+                        const SizedBox(height: 12),
+                        _buildDaySelector(),
+                      ],
+                      
                       const SizedBox(height: 12),
                       ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -534,6 +602,7 @@ class _SimulatorScreenState extends State<SimulatorScreen> {
                             );
                             if (picked != null) {
                               setState(() => _startDate = DateTime(picked.year, picked.month, picked.day));
+                              _simulate(); // Recalcular al cambiar fecha
                             }
                           },
                         ),

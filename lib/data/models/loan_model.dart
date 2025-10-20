@@ -68,6 +68,9 @@ class LoanModel {
   @HiveField(19)
   List<DateTime> paymentDates;
 
+  @HiveField(20)
+  List<bool> selectedDays;
+
   LoanModel({
     String? id,
     required this.clientId,
@@ -89,10 +92,12 @@ class LoanModel {
     double? remainingBalance,
     List<Payment>? payments,
     List<DateTime>? paymentDates,
+    List<bool>? selectedDays,
   })  : id = id ?? const Uuid().v4(),
         remainingBalance = remainingBalance ?? (totalAmountToPay ?? amount),
         payments = payments ?? <Payment>[],
-        paymentDates = paymentDates ?? <DateTime>[];
+        paymentDates = paymentDates ?? <DateTime>[],
+        selectedDays = selectedDays ?? List<bool>.filled(7, true);
 
   // ✅ MEJORADO: Lógica de isFullyPaid más robusta con tolerancia mejorada
   bool get isFullyPaid {
@@ -207,17 +212,15 @@ class LoanModel {
     }
     
     // Verificar dueDate como fallback (solo si está en el futuro o es hoy)
-    if (dueDate != null) {
-      final normalizedDueDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      if (normalizedDueDate == normalizedDate) {
-        return true;
-      }
-      
-      // ✅ NUEVO: Si la fecha de vencimiento ya pasó, considerar como pago pendiente
-      // hasta que se marque como pagado
-      if (normalizedDueDate.isBefore(normalizedDate) && remainingBalance > 0.01) {
-        return true;
-      }
+    final normalizedDueDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    if (normalizedDueDate == normalizedDate) {
+      return true;
+    }
+    
+    // ✅ NUEVO: Si la fecha de vencimiento ya pasó, considerar como pago pendiente
+    // hasta que se marque como pagado
+    if (normalizedDueDate.isBefore(normalizedDate) && remainingBalance > 0.01) {
+      return true;
     }
     
     return false;
@@ -245,11 +248,9 @@ class LoanModel {
     final normalizedToday = DateTime(today.year, today.month, today.day);
     
     // Verificar si dueDate ya pasó y todavía tiene saldo
-    if (dueDate != null) {
-      final normalizedDueDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      if (normalizedDueDate.isBefore(normalizedToday) && remainingBalance > 0.01) {
-        return true;
-      }
+    final normalizedDueDate = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    if (normalizedDueDate.isBefore(normalizedToday) && remainingBalance > 0.01) {
+      return true;
     }
     
     // Verificar paymentDates que ya pasaron
@@ -370,6 +371,7 @@ class LoanModel {
     double? remainingBalance,
     List<Payment>? payments,
     List<DateTime>? paymentDates,
+    List<bool>? selectedDays,
   }) {
     return LoanModel(
       id: id ?? this.id,
@@ -392,6 +394,7 @@ class LoanModel {
       remainingBalance: remainingBalance ?? this.remainingBalance,
       payments: payments ?? List<Payment>.from(this.payments),
       paymentDates: paymentDates ?? List<DateTime>.from(this.paymentDates),
+      selectedDays: selectedDays ?? this.selectedDays,
     );
   }
 

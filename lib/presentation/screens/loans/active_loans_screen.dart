@@ -34,7 +34,7 @@ class _ActiveLoansScreenState extends State<ActiveLoansScreen> {
       _error = null;
     });
     try {
-      // ✅ Aseguramos que solo se carguen préstamos con saldo pendiente y estado válido
+      // Aseguramos que solo se carguen préstamos con saldo pendiente y estado válido
       final allLoans = await _loanRepository.getAllLoans();
       final activeLoans = allLoans.where((loan) {
         final status = (loan.status ?? '').toLowerCase();
@@ -57,7 +57,7 @@ class _ActiveLoansScreenState extends State<ActiveLoansScreen> {
     }
   }
 
-  // ✅ Función para generar un número de 5 dígitos a partir del ID
+  // Función para generar un número de 5 dígitos a partir del ID
   String _formatLoanNumber(String id) {
     // Extrae solo los dígitos del ID
     final digitsOnly = id.replaceAll(RegExp(r'[^0-9]'), '');
